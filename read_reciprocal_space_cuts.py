@@ -172,7 +172,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         order = 1 + len(filtered_peaks)/3 # divided by 3 because in our case we are mapping across 3*L values in reciprocal space, ajust as needed/wanted
         return filtered_peaks, order, avg_peak_I
 
-    current_max, means, num_points = 0, [], []
+    l_values, current_max, means, num_points = 3, 0, [], []
 
     # Run the data processing for each plane
     for plane, plane_data, merged in zip(Planes, data, is_merged):
@@ -191,13 +191,15 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
             cap_peak = 25"""
         # Get the peak's data and save them in the log.data file
         find_peaks_data = find_peaks(row_means)
-        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {find_peaks_data[0]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1],1)}")
         row_means_filtered = filter_large_values(row_means)[0]
+        size = np.size(row_means_filtered)
         current_max = max(current_max, max(row_means_filtered))
+        
         means.append(row_means_filtered)
-        num_points.append(np.size(row_means_filtered))
+        num_points.append(size)
+        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {[round(float(p*(l_values/size)),2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1],1)}")
 
-    l_values = 3
+
     # ratio = l_values / num_points[plane]; Ratio to convert the column index to l-values
 
     # The -12 is the offset from the center of the data previoustly determined in the visualization function
