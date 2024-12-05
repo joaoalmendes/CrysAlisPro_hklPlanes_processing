@@ -3,9 +3,3 @@ ROI data for data selection:
 Plane (h,3,l): roi_start=600, roi_end=800, central_column=676, width=5; L = 0 until L = 3
 
 Plane (h,0.5,l): roi_start=735, roi_end=935, central_column=1048, width=5; L = -2 until L = 1
-
-
----#####----------------------------------------------------------------
-Plane (h,0.5,l): 3,0.5 de L =0 até L=3: roi_start=735, roi_end=935, central_column=1109, width=8
-
-Plane (10.50, -0.50.50, 001): -1.5,3 com L=1 até L=-2 equivalente ao -0.5,3
