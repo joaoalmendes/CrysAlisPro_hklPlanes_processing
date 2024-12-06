@@ -209,7 +209,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
 
     #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
     plt.ylim(0, current_max + 20)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
-    plt.xlim(-2.5, 1.5)
+    #plt.xlim(-2.5, 1.5)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
