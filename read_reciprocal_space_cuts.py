@@ -54,12 +54,17 @@ def extract_temp_voltage(path):
 
 # Function to extract the plane from the filename
 def extract_plane_from_filename(filename):
-    # Example: Parse the filename to get the plane (e.g., "h_3_l" -> "(h,3,l)")
-    match = re.search(r'h_(\d+(\.\d+)?|0\.5)_l', filename)  # Matches "h_3_l", "h_0.5_l", etc.
+    match = re.search(r'([\-\d\.]+)_k_l|h_k_([\-\d\.]+)|([\-\d\.]+)_k_([\-\d\.]+)|h_(\d+(\.\d+)?)_l', filename)
     if match:
-        k_value = match.group(1)
-        plane = f"(h,{k_value},l)"
-        return plane
+        if match.group(1):  # Matches 0.5_k_l or -3_k_l
+            return f"({match.group(1)},k,l)"
+        elif match.group(2):  # Matches h_k_0.25
+            return f"(h,k,{match.group(2)})"
+        elif match.group(3) and match.group(4):  # Matches -3_k_0.25
+            return f"({match.group(3)},k,{match.group(4)})"
+        elif match.group(5):  # Matches h_3_l
+            return f"(h,{match.group(5)},l)"
+    print(f"Warning: Could not determine plane for filename: {filename}")
     return None
 
 # Reorders the planes data gathering order with our input plane order so there are no miss placements while robustly handling missing planes during reordering
@@ -86,7 +91,6 @@ def reorder_data(img_files, planes):
             ordered_data.append(fabio.open(img_files[index]).data)
             ordered_is_merged.append(is_merged[index])
         except ValueError:
-            log_error(f"Plane {plane} not found in the provided files.")
             continue  # Skip missing planes and move on
 
     return ordered_data, ordered_is_merged
@@ -108,8 +112,10 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
     def initial_parameters(plane):
         # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
         params = {
-            "(h,3,l)": (591, 948, 676, 5),
-            "(h,0.5,l)": (591, 948, 1048, 5)    
+            "(h,3,l)": (491, 948, 676, 5),
+            "(h,0.5,l)": (591, 948, 1048, 5),  
+            "(-3,k,l)": (491, 948, 1048, 5) 
+
         }
         return params.get(plane, (0, 0, 0, 0))
     
@@ -202,8 +208,8 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         counter += 1
 
     #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
-    plt.ylim(0, current_max + 20)   # Add a value range (our case 70) so that the legend does not overlap with the data from the plots
-    plt.xlim(-1, 1)
+    plt.ylim(0, current_max + 20)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
+    plt.xlim(-2.5, 1.5)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -295,39 +301,43 @@ def process_temperature_and_voltage(base_dir, local_dir, Planes):
 
 # Function to process files in 'unwarp' folder, where the .img data files are located
 def process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, M):
-    # Generate patterns considering floating-point planes like "h_0.5_l" and integers like "h_3_l", add more patterns if needed
-    if M == False:
-        plane_patterns = [
-            f"CsV3Sb5_strain_h_{plane.split(',')[1]}_l.img" if '.' in plane else
-            f"CsV3Sb5_strain_h_{plane[3]}_l.img"
-            for plane in Planes
-        ]
-    else:
-        plane_patterns = [
-            f"CsV3Sb5_strain_merged_h_{plane.split(',')[1]}_l.img" if '.' in plane else
-            f"CsV3Sb5_strain_merged_h_{plane[3]}_l.img"
-            for plane in Planes
-        ]
+    """
+    Processes files in the unwarp folder to find matching planes.
+    Logs temperature and voltage if a file is not found.
+    """
+    def generate_pattern(plane, merged=False):
+        prefix = "CsV3Sb5_strain_merged_" if merged else "CsV3Sb5_strain_"
+        if plane.startswith("(") and plane.endswith(")"):
+            plane_content = plane.strip("()").replace(",", "_")
+            return f"{prefix}{plane_content}.img"
+        return None
 
-    local_data_path = os.path.join(local_dir, "Data", temp, f"{voltage}V", "data")
-    os.makedirs(local_data_path, exist_ok=True)
+    plane_patterns = [generate_pattern(plane, M) for plane in Planes]
 
     found_files = 0  # Track if any files are found for logging purposes
 
-    for file_name in os.listdir(unwarp_path):
-        if any(pattern in file_name for pattern in plane_patterns):
-            found_files += 1
-            src_file = os.path.join(unwarp_path, file_name)
-            dest_file = os.path.join(local_data_path, file_name)
+    for pattern in plane_patterns:
+        if pattern:
+            print(f"Looking for files matching: {pattern}")  # Debug log
+            file_found = False
+            for file_name in os.listdir(unwarp_path):
+                if pattern in file_name:
+                    file_found = True
+                    found_files += 1
+                    src_file = os.path.join(unwarp_path, file_name)
+                    dest_file = os.path.join(local_dir, "Data", temp, f"{voltage}V", "data", file_name)
 
-            # Copy file and handle `.Identifier` files
-            try:
-                shutil.copy(src_file, dest_file)
-                identifier_file = os.path.join(local_data_path, f"{os.path.splitext(file_name)[0]}.Identifier")
-                if os.path.exists(identifier_file):
-                    os.remove(identifier_file)
-            except Exception as e:
-                log_error(f"Error copying file {file_name} from {temp}/{voltage}: {e}")
+                    # Copy the file
+                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                    shutil.copy(src_file, dest_file)
+
+                    # Handle `.Identifier` files
+                    identifier_file = os.path.join(local_dir, "Data", temp, f"{voltage}V", "data", f"{os.path.splitext(file_name)[0]}.Identifier")
+                    if os.path.exists(identifier_file):
+                        os.remove(identifier_file)
+
+            if not file_found:
+                log_error(f"Plane {pattern} not found for {temp}, {voltage}V at {unwarp_path}")
 
     if found_files == 0:
         log_error(f"No matching files found for planes in {temp}/{voltage} at {unwarp_path}")
@@ -340,12 +350,12 @@ def main(base_dir, local_dir, Planes):
 
 # Inputs: Define temperatures and voltages to process
 TEMPERATURES = ["15K", "80K"]  # Add temperatures here
-VOLTAGES = {"15K": ["5.0", "125.0"], "80K": ["0.0", "38.0"]}  # Voltages for each temperature
+VOLTAGES = {"15K": ["5.0", "20.0"], "80K": ["0.0", "38.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-planes = ["(h,3,l)", "(h,0.5,l)"]
+planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)"], ["red", "green"]
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,3.5,l)"], ["red", "green", "blue"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
