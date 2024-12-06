@@ -93,23 +93,23 @@ def reorder_data(img_files, planes):
 
 # Main data processing function
 def process_img_files(img_files, output_dir, temperature, voltage, Planes):
-    # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-    labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)"], ["red", "green"]
-    
     # Reorder data to align with planes
     data, is_merged = reorder_data(img_files, Planes)
     
+    #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
+    
     # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
-    """
-    plane_index = 1 # example
-    visualize(data[plane_index])"""
+    """if temperature == "15K":
+        plane_index = 0 # example
+        visualize(data[plane_index])
+        visualize(data[plane_index+1])"""
 
     # Run the main logic
     def initial_parameters(plane):
         # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
         params = {
-            "(h,3,l)": (600, 800, 676, 5),
-            "(h,0.5,l)": (735, 935, 1048, 5)
+            "(h,3,l)": (591, 948, 676, 5),
+            "(h,0.5,l)": (591, 948, 1048, 5)    
         }
         return params.get(plane, (0, 0, 0, 0))
     
@@ -172,14 +172,13 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         order = 1 + len(filtered_peaks)/3 # divided by 3 because in our case we are mapping across 3*L values in reciprocal space, ajust as needed/wanted
         return filtered_peaks, order, avg_peak_I
 
-    l_values, current_max, means, num_points = 3, 0, [], []
+    current_max, counter = 0, 0
 
     # Run the data processing for each plane
     for plane, plane_data, merged in zip(Planes, data, is_merged):
         par = initial_parameters(plane)
         roi_start, roi_end, central_column, column_width = par
         col_start, col_end = calculate_columns(column_width, central_column)
-
         roi_data = plane_data[roi_start:roi_end, col_start:col_end]
         row_means = np.mean(roi_data, axis=1)   # Calculate the mean across each row for the given the column values
         
@@ -189,27 +188,22 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
             cap_peak = 40
         else:
             cap_peak = 25"""
+        
         # Get the peak's data and save them in the log.data file
         find_peaks_data = find_peaks(row_means)
-        row_means_filtered = filter_large_values(row_means)[0]
+        row_means_filtered = filter_large_values(row_means, multiplier=30)[0]
         size = np.size(row_means_filtered)
+        x_0, x_1 = par[0] - N_pixel/2, par[1] - N_pixel/2
+
+        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {[round(float(p+x_0)*ratio,2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1],1)}")
+
+        plt.plot(ratio * np.linspace(x_0, x_1, size), row_means_filtered, label=labels[counter], color=colors[counter])
         current_max = max(current_max, max(row_means_filtered))
-        
-        means.append(row_means_filtered)
-        num_points.append(size)
-        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {[round(float(p*(l_values/size)),2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1],1)}")
+        counter += 1
 
-
-    # ratio = l_values / num_points[plane]; Ratio to convert the column index to l-values
-
-    # The -12 is the offset from the center of the data previoustly determined in the visualization function
-    # The flip in the second plot is due to the L values not matchig perfectly but being the symmetric values and ence the only way for our case
-    plt.plot(l_values/num_points[0] * np.linspace(-12, num_points[0], num_points[0]), means[0], label=labels[0], color=colors[0])
-    plt.plot(l_values/num_points[1] * np.linspace(0, num_points[1], num_points[1]), np.flip(means[1]), label=labels[1], color=colors[1])
-
-    plt.xticks(np.arange(0, l_values + 0.01, 0.5), rotation=0)
+    #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
     plt.ylim(0, current_max + 20)   # Add a value range (our case 70) so that the legend does not overlap with the data from the plots
-    plt.xlim(-0.1, l_values + 0.1)
+    plt.xlim(-1, 1)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -345,11 +339,16 @@ def main(base_dir, local_dir, Planes):
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["15K", "80K", "35K", "55K"]  # Add temperatures here
-VOLTAGES = {"15K": ["5.0", "125.0"], "80K": ["0.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"]}  # Voltages for each temperature
+TEMPERATURES = ["15K", "80K"]  # Add temperatures here
+VOLTAGES = {"15K": ["5.0", "125.0"], "80K": ["0.0", "38.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
 planes = ["(h,3,l)", "(h,0.5,l)"]
+# Change this to fit your data/needs, might need to alter the code slightly if things are too different
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)"], ["red", "green"]
+
+ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
+N_pixel = 1476
 
 # Code execution order
 if __name__ == "__main__":
