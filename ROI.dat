@@ -1,5 +1,11 @@
 ROI data for data selection:
 
-Plane (h,3,l): roi_start=591, roi_end=811, central_column=676, width=5; L = 0 until L = 3
+Plane (h,3,l): roi_start=590, roi_end=810, central_column=676, width=5; L = 0 until L = 3
 
-Plane (h,0.5,l): roi_start=728, roi_end=948, central_column=1048, width=5; L = -2 until L = 1
+Plane (h,0.5,l): roi_start=730, roi_end=950, central_column=1048, width=5; L = 1 until L = -2
+
+Plane (-3,k,l): roi_start=400, roi_end=800, central_column=1170, width=5; L = 0 until L = -4
+
+Plane (-3,k,l): roi_start=400, roi_end=800, central_column=1047, width=5; L = 1 until L = -2
+
+Plane (3,k,l): roi_start=700, roi_end=950, central_column=676, width=5; L = 0 until L = 3

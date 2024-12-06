@@ -114,7 +114,8 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         params = {
             "(h,3,l)": (491, 948, 676, 5),
             "(h,0.5,l)": (591, 948, 1048, 5),  
-            "(-3,k,l)": (491, 948, 1048, 5) 
+            "(-3,k,l)": (400, 800, 1047, 5),
+            "(3,k,l)": (700, 950, 676, 5)
 
         }
         return params.get(plane, (0, 0, 0, 0))
@@ -209,7 +210,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
 
     #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
     plt.ylim(0, current_max + 20)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
-    #plt.xlim(-2.5, 1.5)
+    #plt.xlim(-1.7, 3.1)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -353,9 +354,9 @@ TEMPERATURES = ["15K", "80K"]  # Add temperatures here
 VOLTAGES = {"15K": ["5.0", "20.0"], "80K": ["0.0", "38.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)"]
+planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)", "(3,k,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,3.5,l)"], ["red", "green", "blue"]
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)"], ["red", "green", "blue", "orchid"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
