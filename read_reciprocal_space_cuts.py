@@ -176,8 +176,8 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
                     last_peak = peak
             prominent_peaks = np.array(filtered_peaks)
         filtered_peaks, avg_peak_I = filter_large_values(prominent_peaks)
-        order = 1 + len(filtered_peaks)/3 # divided by 3 because in our case we are mapping across 3*L values in reciprocal space, ajust as needed/wanted
-        return filtered_peaks, order, avg_peak_I
+        N_peaks = len(filtered_peaks) 
+        return filtered_peaks, N_peaks, avg_peak_I
 
     current_max, counter = 0, 0
 
@@ -202,7 +202,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         size = np.size(row_means_filtered)
         x_0, x_1 = par[0] - N_pixel/2, par[1] - N_pixel/2
 
-        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {[round(float(p+x_0)*ratio,2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1],1)}")
+        log_data(f"Temperature: {temperature}, Voltage: {voltage}, Plane: {plane}", f"Peaks: {[round(float(p+x_0)*ratio,2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}, Order: {round(find_peaks_data[1]/(size*ratio)+1,1)}")
 
         plt.plot(ratio * np.linspace(x_0, x_1, size), row_means_filtered, label=labels[counter], color=colors[counter])
         current_max = max(current_max, max(row_means_filtered))
@@ -210,7 +210,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
 
     #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
     plt.ylim(0, current_max + 20)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
-    #plt.xlim(-1.7, 3.1)
+    plt.xlim(-1.6, 3.1)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -316,7 +316,7 @@ def process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, M):
     plane_patterns = [generate_pattern(plane, M) for plane in Planes]
 
     found_files = 0  # Track if any files are found for logging purposes
-
+    print(f"{voltage}V")
     for pattern in plane_patterns:
         if pattern:
             print(f"Looking for files matching: {pattern}")  # Debug log
@@ -350,13 +350,13 @@ def main(base_dir, local_dir, Planes):
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["15K", "80K"]  # Add temperatures here
-VOLTAGES = {"15K": ["5.0", "20.0"], "80K": ["0.0", "38.0"]}  # Voltages for each temperature
+TEMPERATURES = ["15K", "80K", "35K", "55K"]  # Add temperatures here
+VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
 planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)", "(3,k,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)"], ["red", "green", "blue", "orchid"]
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)"], ["red", "green", "blue", "blue"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
