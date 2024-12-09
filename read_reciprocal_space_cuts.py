@@ -115,7 +115,8 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
             "(h,3,l)": (491, 948, 676, 5),
             "(h,0.5,l)": (591, 948, 1048, 5),  
             "(-3,k,l)": (400, 800, 1047, 5),
-            "(3,k,l)": (700, 950, 676, 5)
+            "(3,k,l)": (700, 950, 676, 5),
+            "(h,0,l)": (725, 1175, 1171, 5)
 
         }
         return params.get(plane, (0, 0, 0, 0))
@@ -208,9 +209,10 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         current_max = max(current_max, max(row_means_filtered))
         counter += 1
 
-    #plt.xticks(np.arange(0, 3 + 0.01, 0.5), rotation=0)
-    plt.ylim(0, current_max + 20)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
+    plt.xticks(np.arange(-2, 4, 0.5), rotation=0)
+    plt.ylim(0, current_max + 25)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
     plt.xlim(-1.6, 3.1)
+    plt.ylim(15)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -350,13 +352,18 @@ def main(base_dir, local_dir, Planes):
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["15K", "80K", "35K", "55K"]  # Add temperatures here
-VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"]}  # Voltages for each temperature
+TEMPERATURES = ["15K", "80K", "35K", "55K", "15K_low_strain", 
+                 "15K_medium_strain", "15K_high_strain", "80K_low_strain", "80K_medium_strain", "80K_high_strain",
+                   "100K_low_strain", "100K_medium_strain", "100K_high_strain"]  # Add temperatures here
+VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"], 
+            "15K_low_strain": ["20.0"], "15K_medium_strain": ["83.0"], "15K_high_strain": ["115.0"],
+            "80K_low_strain": ["26.0"], "80K_medium_strain": ["30.0"], "80K_high_strain": ["95.0"],
+            "100K_low_strain": ["15.0"], "100K_medium_strain": ["55.0"], "100K_high_strain": ["75.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)", "(3,k,l)"]
+planes = ["(h,3,l)", "(h,0.5,l)", "(-3,k,l)", "(3,k,l)", "(h,0,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)"], ["red", "green", "blue", "blue"]  # If they have the same color it means that they are equivelent points
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "green", "blue", "blue", "red"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
