@@ -13,7 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Visualize using silx
-def visualize(img_file):
+def visualize(img_file: str) -> None:
     # Initialize the Qt application
     app = qt.QApplication([])
 
@@ -45,7 +45,7 @@ def visualize(img_file):
 # Data processing and treatment unit
 
 # Helper to extract temperature and voltage from folder names
-def extract_temp_voltage(path):
+def extract_temp_voltage(path: str) -> tuple[str, str]:
     # Assumes structure: <base_dir>/<temperature>/<voltage>/data
     parts = path.split(os.sep)
     temperature = parts[-3]
@@ -53,7 +53,7 @@ def extract_temp_voltage(path):
     return temperature, voltage
 
 # Function to extract the plane from the filename
-def extract_plane_from_filename(filename):
+def extract_plane_from_filename(filename: str) -> str | None:
     match = re.search(r'([\-\d\.]+)_k_l|h_k_([\-\d\.]+)|([\-\d\.]+)_k_([\-\d\.]+)|h_(\d+(\.\d+)?)_l', filename)
     if match:
         if match.group(1):  # Matches 0.5_k_l or -3_k_l
@@ -68,7 +68,7 @@ def extract_plane_from_filename(filename):
     return None
 
 # Reorders the planes data gathering order with our input plane order so there are no miss placements while robustly handling missing planes during reordering
-def reorder_data(img_files, planes):
+def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarray], list[bool]]:
     file_planes = []
     is_merged = []
 
@@ -96,7 +96,7 @@ def reorder_data(img_files, planes):
     return ordered_data, ordered_is_merged
 
 # Main data processing function
-def process_img_files(img_files, output_dir, temperature, voltage, Planes):
+def process_img_files(img_files: list[str], output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
     # Reorder data to align with planes
     data, is_merged = reorder_data(img_files, Planes)
     
@@ -109,7 +109,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         visualize(data[plane_index+1])"""
 
     # Run the main logic
-    def initial_parameters(plane):
+    def initial_parameters(plane: str) -> tuple[int, int, int, int]:
         # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
         params = {
             "(h,3,l)": (491, 948, 676, 5),
@@ -122,13 +122,13 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         return params.get(plane, (0, 0, 0, 0))
     
     # Defines a starting and ending collumn for the exctraction of the peak intensity data
-    def calculate_columns(width, column):
+    def calculate_columns(width: int, column: int) -> tuple[int, int]:
         start = column - width // 2
         end = column + width // 2 + 1
         return start, end
     
     # Filters out fake very intense peaks from the data if encontered
-    def filter_large_values(data, multiplier=10):
+    def filter_large_values(data: list[np.ndarray], multiplier=10) -> tuple[np.ndarray, float]:
         while True:
             if data.size <= 1:
                 # Not enough data points to filter
@@ -154,7 +154,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         filtered_avg = np.mean(data) if data.size > 0 else 0
         return data, filtered_avg
     
-    def find_peaks(data, height=None, min_prominence=20, min_distance=5):
+    def find_peaks(data: list[np.ndarray], height=None, min_prominence=20, min_distance=5) -> tuple[np.ndarray, int, float]:
         # Ensure data is a numpy array
         data = np.asarray(data)
 
@@ -183,19 +183,12 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
     current_max, counter = 0, 0
 
     # Run the data processing for each plane
-    for plane, plane_data, merged in zip(Planes, data, is_merged):
+    for plane, plane_data in zip(Planes, data):
         par = initial_parameters(plane)
         roi_start, roi_end, central_column, column_width = par
         col_start, col_end = calculate_columns(column_width, central_column)
         roi_data = plane_data[roi_start:roi_end, col_start:col_end]
         row_means = np.mean(roi_data, axis=1)   # Calculate the mean across each row for the given the column values
-        
-        """
-        # Change parameters values for merged data and not merged data if necessary
-        if merged == True:
-            cap_peak = 40
-        else:
-            cap_peak = 25"""
         
         # Get the peak's data and save them in the log.data file
         find_peaks_data = find_peaks(row_means)
@@ -209,10 +202,15 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
         current_max = max(current_max, max(row_means_filtered))
         counter += 1
 
+    if is_merged[0] == False:
+        noise_cap = 15
+    else:
+        noise_cap = 30
+
     plt.xticks(np.arange(-2, 4, 0.5), rotation=0)
     plt.ylim(0, current_max + 25)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
     plt.xlim(-1.6, 3.1)
-    plt.ylim(15)
+    plt.ylim(noise_cap)
     plt.xlabel("l (r.l.u)")
     plt.ylabel("Intensity")
     plt.legend(loc="upper left")
@@ -224,7 +222,7 @@ def process_img_files(img_files, output_dir, temperature, voltage, Planes):
     plt.close()
 
 # Traverse folder structure to store the data for each point
-def main_process(base_dir, Planes):
+def main_processing(base_dir: str, Planes: list[str]) -> None:
     data_dir = os.path.join(base_dir, "Data")  # Add 'Data' folder in the traversal
     for temp_dir in os.listdir(data_dir):
         temp_path = os.path.join(data_dir, temp_dir)
@@ -243,21 +241,21 @@ def main_process(base_dir, Planes):
 # Data gathering and transfering to local directory unit
 
 # Log peak data to the log.data file
-def log_data(message, info, log_file="log.data"):
+def log_data(message: str, info: str, log_file="log.data") -> None:
     with open(log_file, "a") as f:  # Append to log file
         f.write(message + "\n")
         f.write(info + "\n")
         f.write("\n")
 
 # Logging function for errors during code execution
-def log_error(message, log_file="log.error"):
+def log_error(message: str, log_file="log.error") -> None:
     print(message)  # Print to console
     with open(log_file, "a") as f:  # Append to log file
         f.write(message + "\n")
         f.write("\n")
 
 # Function to process temperature and voltage folders in the Cloud Storage directory
-def process_temperature_and_voltage(base_dir, local_dir, Planes):
+def process_temperature_and_voltage(base_dir: str, local_dir: str, Planes: list[str]) -> None:
     for temp in TEMPERATURES:
         temp_path = os.path.join(base_dir, temp)
         print(f"Processing {temp_path}")
@@ -303,12 +301,12 @@ def process_temperature_and_voltage(base_dir, local_dir, Planes):
             process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, MERGED)
 
 # Function to process files in 'unwarp' folder, where the .img data files are located
-def process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, M):
+def process_unwarp_folder(unwarp_path: str, temp: str, voltage: str, local_dir: str, Planes: list[str], M: bool) -> None:
     """
     Processes files in the unwarp folder to find matching planes.
     Logs temperature and voltage if a file is not found.
     """
-    def generate_pattern(plane, merged=False):
+    def generate_pattern(plane: str, merged=False) -> None:
         prefix = "CsV3Sb5_strain_merged_" if merged else "CsV3Sb5_strain_"
         if plane.startswith("(") and plane.endswith(")"):
             plane_content = plane.strip("()").replace(",", "_")
@@ -346,7 +344,7 @@ def process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, M):
         log_error(f"No matching files found for planes in {temp}/{voltage} at {unwarp_path}")
 
 # Main function to call the main function and process temperature and voltage folders in the Cloud Storage directory
-def main(base_dir, local_dir, Planes):
+def main_gathering(base_dir: str, local_dir: str, Planes: list[str]) -> None:
     process_temperature_and_voltage(base_dir, local_dir, Planes)
 
 # Inputs and code execution order
@@ -355,6 +353,7 @@ def main(base_dir, local_dir, Planes):
 TEMPERATURES = ["15K", "80K", "35K", "55K", "15K_low_strain", 
                  "15K_medium_strain", "15K_high_strain", "80K_low_strain", "80K_medium_strain", "80K_high_strain",
                    "100K_low_strain", "100K_medium_strain", "100K_high_strain"]  # Add temperatures here
+
 VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"], 
             "15K_low_strain": ["20.0"], "15K_medium_strain": ["83.0"], "15K_high_strain": ["115.0"],
             "80K_low_strain": ["26.0"], "80K_medium_strain": ["30.0"], "80K_high_strain": ["95.0"],
@@ -381,14 +380,14 @@ if __name__ == "__main__":
             need_data_to_process = input("Do you need to copy data from the Z: drive? (y/n): ")
             if need_data_to_process.lower() == "y":
                 print("Starting data gathering...")
-                main(base_dir, local_dir, planes)
+                main_gathering(base_dir, local_dir, planes)
                 print("Data gathering completed.")
                 print("Starting data processing.")
-                main_process(local_dir, planes)
+                main_processing(local_dir, planes)
                 print("Data processing completed.")
             else:
                 print("Starting data processing.")
-                main_process(local_dir, planes)
+                main_processing(local_dir, planes)
                 print("Data processing completed.")
         else:
             print("Exiting script due to Z: drive not being mounted in /mnt/z/.")
