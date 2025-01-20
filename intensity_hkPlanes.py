@@ -6,6 +6,9 @@ from silx.gui.plot import Plot2D
 import PyQt5.QtCore  # Importing PyQt5 will force silx to use it
 from silx.gui import qt
 from silx.gui.colors import Colormap
+from PyQt5.QtCore import QRectF
+from PyQt5.QtGui import QPen, QColor
+from PyQt5.QtWidgets import QGraphicsEllipseItem
 import os
 import re
 import shutil
@@ -13,7 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Visualize using silx
-def visualize(img_file: str) -> None:
+def visualize(img_file: np.array) -> None:
     # Initialize the Qt application
     app = qt.QApplication([])
 
@@ -29,8 +32,7 @@ def visualize(img_file: str) -> None:
     else: 
         max_cap = 200
     colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
-    print(img_file)
-    print(img_file.type())
+
     # Add the image to the plot with the Colormap object
     plot.addImage(img_file, colormap=colormap, legend="Image Data")
     plot.show()
@@ -60,7 +62,7 @@ def extract_plane_from_filename(filename: str) -> tuple | None:
         if match.group(1):  # Matches 0.5_k_l or -3_k_l
             return f"({match.group(1)},k,l)", None
         elif match.group(2):  # Matches h_k_0.25
-            return f"(h,k,{match.group(2)})", float(match.group(2))
+            return f"(h,k,{match.group(2)[:-1]})", float(match.group(2)[:-1])
         elif match.group(3) and match.group(4):  # Matches -3_k_0.25
             return f"({match.group(3)},k,{match.group(4)})", None
         elif match.group(5):  # Matches h_3_l
@@ -97,25 +99,24 @@ def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarr
             ordered_is_merged.append(is_merged[index])
         except ValueError:
             continue  # Skip missing planes and move on
-
     return ordered_data, ordered_is_merged, ordered_l_list
 
 # Main data processing function
 def process_img_files(img_files: list[str], output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
     # Reorder data to align with planes
     data, is_merged, l_values = reorder_data(img_files, Planes)
-    
     in_plane = False
-    if l_values[0] != None:
+    if len(l_values) > 0:
         in_plane = True 
-    print(f"In plane: {in_plane}")
+    else:
+        log_error(f"No in-plane Planes for data analysis for: ({temperature}, {voltage})")
     #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
-    
+
     # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
-    if temperature == "80K":
+    """if temperature == "80K":
         plane_index = 0 # example
         visualize(data[plane_index])
-        visualize(data[plane_index+1])
+        visualize(data[plane_index+1])"""
 
     # Run the main logic
     if in_plane == False:
@@ -234,18 +235,111 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
             plt.savefig(output_path, dpi=300)
             plt.close()
 
+        l_plots_run()
         return print("Runned for Intensity vs l (values) plots.")
     
     else:
         def intensity_inPlane_run():
 
-            parameters = (int, int, int, int)   # defines the boxe delimitation for the hk space of comparison
+            def detect_chirality(peak_intensities: list[float]) -> bool:
+                # Ensure the list has exactly 6 peaks
+                if len(peak_intensities) != 6:
+                    raise ValueError("The input list must have exactly 6 intensity values.")
 
-            for plane, plane_data in zip(Planes, data):
-                roi_data = plane_data[int:int, int:int]
+                # Calculate average intensities of symmetric pairs
+                avg_03 = (peak_intensities[0] + peak_intensities[3]) / 2
+                avg_14 = (peak_intensities[1] + peak_intensities[4]) / 2
+                avg_25 = (peak_intensities[2] + peak_intensities[5]) / 2
 
+                # Use avg_14 as the reference (pivot)
+                if avg_03 < avg_14 < avg_25:
+                    return True
+                elif avg_03 > avg_14 > avg_25:
+                    return False
+                else:
+                    return None
+
+            def plot_HKplane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int: tuple], figure_size: tuple, pixel_data: np.array, title_text: str) -> None:
                 
-            return print("Runned for Intensity values calculation for in-plane cuts.")
+                # Initialize the Qt application
+                app = qt.QApplication([])
+
+                # Create a 2D plot
+                plot = Plot2D()
+                plot.setWindowTitle(f"({temperature}, {voltage}); {title_text} ")
+
+                # Create a Colormap object; here minimum value is 0 and maximum 800 but for different data (sets) this might need adjustment
+                # Merged data -> (min=0, max=800); Not merged data -> (min=0, max=100)
+                # But adjust as you think it's more sutiable to you or your data
+                if "merged" in pixel_data: 
+                    max_cap = 800
+                else: 
+                    max_cap = 300
+                colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
+
+                # Add the image to the plot with the Colormap object
+                subset_data = pixel_data[plot_range[0]: plot_range[1], plot_range[2]: plot_range[3]]
+                
+                plot.addImage(subset_data, colormap=colormap, legend="Image Data")
+                
+                # Calculations for the adding of text and figures to the final plot
+                new_peaks_positions = {}
+                index = 0
+                delta_x, delta_y = plot_range[2], plot_range[0]
+                for position in PeaksPos.values():
+                    x, y = position[0], position[1]
+                    new_peaks_positions[index] = (x - delta_x, y - delta_y)
+                    index += 1
+
+                index = 0
+                for pos in new_peaks_positions.values():
+                    plot.addMarker(x=pos[0], y=pos[1] + 10, text=f'{intensities[index]}', color="red", symbol="none")
+                    index += 1
+
+                plot.show()
+                plot.save(f'hkPlane_{temperature}_{voltage}.png', dpi=300)
+                # Start the Qt event loop
+                app.exec_()
+
+                # Close and clean up the application
+                plot.close()
+                del plot
+                qt.QApplication.quit()  # Ensure the application is properly shut down
+
+
+            UnitCell_parameters = (990, 1130, 840, 1000)   # (row_start, row_end, col_start, col_end); defines the boxe delimitation for the hk space of comparison
+            peak_BoxSize = (5, 5)
+            peaks_positions = {0: (890,1005), 1: (860, 1058), 2: (881, 1111),
+                               3: (952,1112), 4: (984, 1059), 5: (953, 1005)} # as (collum, row)
+
+            PeaksPositions_RangeForCalc = {}
+            index = 0
+            for peak_pos in peaks_positions.values():
+                x, y = peak_pos[0], peak_pos[1]
+                delta_x, delta_y = peak_BoxSize[0], peak_BoxSize[1]
+                PeaksPositions_RangeForCalc[index] = (y - delta_y, y + delta_y, x - delta_x, x + delta_x)
+                index += 1
+
+            chirality_list = [] # It assumes -> True: Right; False: Left; None: Non detected
+            for plane, plane_data in zip(Planes, data):
+                index = 0
+                peaks_intensities = {}
+                for inputs in PeaksPositions_RangeForCalc.values():
+                    peak_data = plane_data[inputs[0]: inputs[1], inputs[2]: inputs[3]]
+                    data_intensity = np.mean(peak_data)
+                    peaks_intensities[index] = data_intensity
+                    index += 1
+                
+                peaks_intensities_list = list(peaks_intensities.values())
+                chirality = detect_chirality(peaks_intensities_list)
+                chirality_list.append(chirality)
+
+                title = str(plane) + "; Chirality: " + str(chirality)
+                plot_HKplane(UnitCell_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title)
+
+
+        intensity_inPlane_run()
+        return print("Runned for Intensity values calculation for in-plane cuts.")
 
 
 
