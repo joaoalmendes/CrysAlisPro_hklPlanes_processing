@@ -14,6 +14,10 @@ import re
 import shutil
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
+import numpy as np
+from matplotlib.colors import Normalize
+from matplotlib.colorbar import ColorbarBase
 
 # Visualize using silx
 def visualize(img_file: np.array) -> None:
@@ -216,11 +220,11 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 current_max = max(current_max, max(row_means_filtered))
                 counter += 1
 
-            if is_merged[0] == False:
+            """if is_merged[0] == False:
                 noise_cap = 15
             else:
                 noise_cap = 30
-
+"""
             plt.xticks(np.arange(-2, 4, 0.5), rotation=0)
             plt.ylim(0, current_max + 25)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
             plt.xlim(-1.6, 3.1)
@@ -259,57 +263,64 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 else:
                     return None
 
-            def plot_HKplane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int: tuple], figure_size: tuple, pixel_data: np.array, title_text: str) -> None:
+            def plot_HKplane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int, tuple], figure_size: tuple, pixel_data: np.array, title_text: str, temperature: str, voltage: str) -> None:
+                """
+                Function to plot HK-plane data with peaks annotated, using Matplotlib.
                 
-                # Initialize the Qt application
-                app = qt.QApplication([])
-
-                # Create a 2D plot
-                plot = Plot2D()
-                plot.setWindowTitle(f"({temperature}, {voltage}); {title_text} ")
-
-                # Create a Colormap object; here minimum value is 0 and maximum 800 but for different data (sets) this might need adjustment
-                # Merged data -> (min=0, max=800); Not merged data -> (min=0, max=100)
-                # But adjust as you think it's more sutiable to you or your data
-                if "merged" in pixel_data: 
-                    max_cap = 800
-                else: 
-                    max_cap = 300
-                colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
-
-                # Add the image to the plot with the Colormap object
-                subset_data = pixel_data[plot_range[0]: plot_range[1], plot_range[2]: plot_range[3]]
+                Args:
+                    plot_range (tuple): (y_min, y_max, x_min, x_max) range to subset pixel data.
+                    intensities (list): List of intensities corresponding to peak positions.
+                    PeaksPos (dict): Dictionary mapping indices to peak positions as tuples (x, y).
+                    figure_size (tuple): Size of the plot figure (width, height).
+                    pixel_data (np.array): 2D array of pixel intensity values.
+                    title_text (str): Title of the plot.
+                    temperature (str): Temperature annotation for plot title.
+                    voltage (str): Voltage annotation for plot title.
+                """
                 
-                plot.addImage(subset_data, colormap=colormap, legend="Image Data")
+                # Subset the pixel data based on the specified plot range
+                subset_data = pixel_data[plot_range[0]:plot_range[1], plot_range[2]:plot_range[3]]
                 
-                # Calculations for the adding of text and figures to the final plot
-                new_peaks_positions = {}
-                index = 0
+                # Create the figure and axis with the specified size
+                fig, ax = plt.subplots(figsize=figure_size)
+                ax.set_title(f"({temperature}, {voltage}); {title_text}")
+                
+                # Determine appropriate colormap range (merged or unmerged data)
+                max_cap = 800 if "merged" in title_text.lower() else 300
+                norm = Normalize(vmin=0, vmax=max_cap)
+                
+                # Plot the subset data with a colormap
+                img = ax.imshow(subset_data, cmap="viridis", norm=norm, origin='lower', 
+                                extent=(plot_range[2], plot_range[3], plot_range[0], plot_range[1]))
+                plt.colorbar(img, ax=ax, label='Intensity')
+                
+                # Adjust peaks' positions relative to the plot_range
                 delta_x, delta_y = plot_range[2], plot_range[0]
-                for position in PeaksPos.values():
-                    x, y = position[0], position[1]
-                    new_peaks_positions[index] = (x - delta_x, y - delta_y)
-                    index += 1
+                new_peaks_positions = {index: (x - delta_x, y - delta_y) for index, (x, y) in PeaksPos.items()}
 
-                index = 0
-                for pos in new_peaks_positions.values():
-                    plot.addMarker(x=pos[0], y=pos[1] + 10, text=f'{intensities[index]}', color="red", symbol="none")
-                    index += 1
-
-                plot.show()
-                plot.save(f'hkPlane_{temperature}_{voltage}.png', dpi=300)
-                # Start the Qt event loop
-                app.exec_()
-
-                # Close and clean up the application
-                plot.close()
-                del plot
-                qt.QApplication.quit()  # Ensure the application is properly shut down
-
+                # Add text and red circle markers for each peak
+                for index, pos in new_peaks_positions.items():
+                    x, y = pos
+                    ax.text(x + delta_x, y + delta_y + figure_size[0], f'{round(intensities[index], 1)}', color='red', ha='center', va='bottom', fontsize=9)
+                    # Add a red circle around each peak
+                    circle = Circle((x + delta_x, y + delta_y), radius=figure_size[0], edgecolor='red', facecolor='none', lw=1.0)
+                    ax.add_patch(circle)
+                
+                # Set labels and show the plot
+                ax.set_xlabel("Pixel X")
+                ax.set_ylabel("Pixel Y")
+                plt.tight_layout()
+                to_go_back = os.getcwd()
+                os.chdir(f"{to_go_back}/Data/{temperature}/{voltage}/")
+                # Save the figure with specified dpi (higher dpi = higher resolution)
+                plt.savefig(fname = f"{plane}.pdf", dpi=300, bbox_inches='tight')
+                plt.close()
+                os.chdir(to_go_back)
+                #plt.show()
 
             UnitCell_parameters = (990, 1130, 840, 1000)   # (row_start, row_end, col_start, col_end); defines the boxe delimitation for the hk space of comparison
-            peak_BoxSize = (5, 5)
-            peaks_positions = {0: (890,1005), 1: (860, 1058), 2: (881, 1111),
+            peak_BoxSize = (7, 7)
+            peaks_positions = {0: (891,1005), 1: (860, 1058), 2: (891, 1112),
                                3: (952,1112), 4: (984, 1059), 5: (953, 1005)} # as (collum, row)
 
             PeaksPositions_RangeForCalc = {}
@@ -335,7 +346,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 chirality_list.append(chirality)
 
                 title = str(plane) + "; Chirality: " + str(chirality)
-                plot_HKplane(UnitCell_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title)
+                plot_HKplane(UnitCell_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage)
 
 
         intensity_inPlane_run()
