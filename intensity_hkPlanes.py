@@ -28,13 +28,12 @@ def visualize(img_file: np.array) -> None:
     plot = Plot2D()
     plot.setWindowTitle(f"CrystAlis {img_file} data")
 
-    # Create a Colormap object; here minimum value is 0 and maximum 800 but for different data (sets) this might need adjustment
-    # Merged data -> (min=0, max=800); Not merged data -> (min=0, max=100)
+    # Create a Colormap object; here minimum value is 0 and maximum 100 but for different data (sets) this might need adjustment
     # But adjust as you think it's more sutiable to you or your data
     if "merged" in img_file: 
-        max_cap = 800
+        max_cap = 100
     else: 
-        max_cap = 200
+        max_cap = 100
     colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
 
     # Add the image to the plot with the Colormap object
@@ -75,7 +74,7 @@ def extract_plane_from_filename(filename: str) -> tuple | None:
     return None
 
 # Reorders the planes data gathering order with our input plane order so there are no miss placements while robustly handling missing planes during reordering
-def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarray], list[bool]]:
+def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarray], list[bool], list[float]]:
     file_planes = []
     is_merged = []
     l_list = []
@@ -109,11 +108,12 @@ def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarr
 def process_img_files(img_files: list[str], output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
     # Reorder data to align with planes
     data, is_merged, l_values = reorder_data(img_files, Planes)
-    in_plane = False
+    """in_plane = False
     if len(l_values) > 0:
         in_plane = True 
     else:
-        log_error(f"No in-plane Planes for data analysis for: ({temperature}, {voltage})")
+        log_error(f"No in-plane Planes for data analysis for: ({temperature}, {voltage})")"""
+    
     #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
 
     # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
@@ -124,6 +124,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
 
     # Run the main logic
     if in_plane == False:
+        log_data("Running for Intensity vs l (values) plots.", "")
 
         def l_plots_run():
 
@@ -243,6 +244,8 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         return print("Runned for Intensity vs l (values) plots.")
     
     else:
+        log_data("Running for Intensity values calculation for in-plane cuts.", "")
+
         def intensity_inPlane_run():
 
             def detect_chirality(peak_intensities: list[float]) -> bool:
@@ -286,7 +289,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 ax.set_title(f"({temperature}, {voltage}); {title_text}")
                 
                 # Determine appropriate colormap range (merged or unmerged data)
-                max_cap = 800 if "merged" in title_text.lower() else 300
+                max_cap = 800 if "merged" in title_text.lower() else 100        # Keep 100 for all
                 norm = Normalize(vmin=0, vmax=max_cap)
                 
                 # Plot the subset data with a colormap
@@ -332,15 +335,23 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 index += 1
 
             chirality_list = [] # It assumes -> True: Right; False: Left; None: Non detected
-            for plane, plane_data in zip(Planes, data):
+            for plane, plane_data, merged in zip(Planes, data, is_merged):
                 index = 0
                 peaks_intensities = {}
                 for inputs in PeaksPositions_RangeForCalc.values():
                     peak_data = plane_data[inputs[0]: inputs[1], inputs[2]: inputs[3]]
                     data_intensity = np.mean(peak_data)
-                    peaks_intensities[index] = data_intensity
+                    peaks_intensities[index] = round(float(data_intensity),2)
                     index += 1
                 
+                background_I = round(float(np.mean(plane_data[990:1000, 840:850])),2)
+                if merged == True:
+                    merged_I_avg.append(background_I)
+                else:
+                    non_merged_I_avg.append(background_I)
+
+                log_data(f"Plane {plane} (is merged = {merged}; Background intensity = {background_I}):", f"Peaks intensities: {peaks_intensities}")
+
                 peaks_intensities_list = list(peaks_intensities.values())
                 chirality = detect_chirality(peaks_intensities_list)
                 chirality_list.append(chirality)
@@ -493,12 +504,19 @@ VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0
             "100K_low_strain": ["15.0"], "100K_medium_strain": ["55.0"], "100K_high_strain": ["75.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-planes = ["(h,k,-0.25)", "(h,k,-0.5)"]
+planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,-1)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
 labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "green", "blue", "blue", "red"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
+
+in_plane = True # choose what to run the code for
+
+# For benchmarking the difference between merged and non-merged data
+
+merged_I_avg = []
+non_merged_I_avg = []
 
 # Code execution order
 if __name__ == "__main__":
@@ -522,6 +540,14 @@ if __name__ == "__main__":
                 print("Starting data processing.")
                 main_processing(local_dir, planes)
                 print("Data processing completed.")
+
+                print("Benchmarking results")
+
+                ratio = (sum(merged_I_avg)/len(merged_I_avg))/(sum(non_merged_I_avg)/len(non_merged_I_avg))
+
+                print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+                log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+
         else:
             print("Exiting script due to Z: drive not being mounted in /mnt/z/.")
             print("Please make sure the Z: drive is mounted in a folder named 'z' in your /mnt/ directory and try again.")
