@@ -30,10 +30,7 @@ def visualize(img_file: np.array) -> None:
 
     # Create a Colormap object; here minimum value is 0 and maximum 100 but for different data (sets) this might need adjustment
     # But adjust as you think it's more sutiable to you or your data
-    if "merged" in img_file: 
-        max_cap = 100
-    else: 
-        max_cap = 100
+    max_cap = 100
     colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
 
     # Add the image to the plot with the Colormap object
@@ -132,8 +129,8 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
                 params = {
                     "(h,3,l)": (491, 948, 676, 5),
-                    "(h,0.5,l)": (591, 948, 1048, 5),  
-                    "(-3,k,l)": (400, 800, 1047, 5),
+                    #"(h,0.5,l)": (591, 948, 1048, 5),  
+                    #"(-3,k,l)": (400, 800, 1047, 5),
                     "(3,k,l)": (700, 950, 676, 5),
                     "(h,0,l)": (725, 1175, 1171, 5)
 
@@ -212,6 +209,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 # Get the peak's data and save them in the log.data file
                 find_peaks_data = find_peaks(row_means)
                 row_means_filtered = filter_large_values(row_means, multiplier=30)[0]
+                row_means_filtered[row_means_filtered < 10] = 0.0
                 size = np.size(row_means_filtered)
                 x_0, x_1 = par[0] - N_pixel/2, par[1] - N_pixel/2
 
@@ -228,7 +226,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
 """
             plt.xticks(np.arange(-2, 4, 0.5), rotation=0)
             plt.ylim(0, current_max + 25)   # Add a value range (our case 20) so that the legend does not overlap with the data from the plots
-            plt.xlim(-1.6, 3.1)
+            plt.xlim(-0.7, 3.1)
             #plt.ylim(noise_cap)
             plt.xlabel("l (r.l.u)")
             plt.ylabel("Intensity")
@@ -363,8 +361,6 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         intensity_inPlane_run()
         return print("Runned for Intensity values calculation for in-plane cuts.")
 
-
-
 # Traverse folder structure to store the data for each point
 def main_processing(base_dir: str, Planes: list[str]) -> None:
     data_dir = os.path.join(base_dir, "Data")  # Add 'Data' folder in the traversal
@@ -494,24 +490,23 @@ def main_gathering(base_dir: str, local_dir: str, Planes: list[str]) -> None:
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["15K", "80K", "35K", "55K", "15K_low_strain", 
-                 "15K_medium_strain", "15K_high_strain", "80K_low_strain", "80K_medium_strain", "80K_high_strain",
-                   "100K_low_strain", "100K_medium_strain", "100K_high_strain"]  # Add temperatures here
+TEMPERATURES = ["15K", "80K", "45K", "75K", "15K_low_strain", 
+                 "15K_medium_strain", "15K_high_strain", "80K_low_strain", "80K_medium_strain", "80K_high_strain"]  # Add temperatures here
 
-VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0", "38.0", "55.0"], "35K": ["86.0"], "55K": ["67.0"], 
+VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0", "14.5", "29.0", "38.0", "55.0"], "45K": ["74.0"], "75K": ["58.0"], 
             "15K_low_strain": ["20.0"], "15K_medium_strain": ["83.0"], "15K_high_strain": ["115.0"],
-            "80K_low_strain": ["26.0"], "80K_medium_strain": ["30.0"], "80K_high_strain": ["95.0"],
-            "100K_low_strain": ["15.0"], "100K_medium_strain": ["55.0"], "100K_high_strain": ["75.0"]}  # Voltages for each temperature
+            "80K_low_strain": ["26.0"], "80K_medium_strain": ["30.0"], "80K_high_strain": ["95.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,-1)"]
+#planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,0)"]
+planes = ["(h,3,l)", "(3,k,l)", "(h,0,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "green", "blue", "blue", "red"]  # If they have the same color it means that they are equivelent points
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "blue", "red", "blue", "red"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
 
-in_plane = True # choose what to run the code for
+in_plane = False # choose what to run the code for
 
 # For benchmarking the difference between merged and non-merged data
 
@@ -536,17 +531,27 @@ if __name__ == "__main__":
                 print("Starting data processing.")
                 main_processing(local_dir, planes)
                 print("Data processing completed.")
+
+                if in_plane == True:
+                    print("Benchmarking results")
+
+                    ratio = (sum(merged_I_avg)/len(merged_I_avg))/(sum(non_merged_I_avg)/len(non_merged_I_avg))
+
+                    print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+                    log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+
             else:
                 print("Starting data processing.")
                 main_processing(local_dir, planes)
                 print("Data processing completed.")
 
-                print("Benchmarking results")
+                if in_plane == True:
+                    print("Benchmarking results")
 
-                ratio = (sum(merged_I_avg)/len(merged_I_avg))/(sum(non_merged_I_avg)/len(non_merged_I_avg))
+                    ratio = (sum(merged_I_avg)/len(merged_I_avg))/(sum(non_merged_I_avg)/len(non_merged_I_avg))
 
-                print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
-                log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+                    print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
+                    log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
 
         else:
             print("Exiting script due to Z: drive not being mounted in /mnt/z/.")
