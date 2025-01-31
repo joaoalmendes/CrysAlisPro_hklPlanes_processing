@@ -264,7 +264,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 else:
                     return None
 
-            def plot_HKplane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int, tuple], figure_size: tuple, pixel_data: np.array, title_text: str, temperature: str, voltage: str) -> None:
+            def plot_HKplane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int, tuple], figure_size: tuple, pixel_data: np.array, title_text: str, temperature: str, voltage: str, M: bool) -> None:
                 """
                 Function to plot HK-plane data with peaks annotated, using Matplotlib.
                 
@@ -286,13 +286,18 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 fig, ax = plt.subplots(figsize=figure_size)
                 ax.set_title(f"({temperature}, {voltage}); {title_text}")
                 
-                # Determine appropriate colormap range (merged or unmerged data)
-                max_cap = 800 if "merged" in title_text.lower() else 100        # Keep 100 for all
+                if M == True:
+                    max_cap = 100
+                else:
+                    max_cap = 50
+
                 norm = Normalize(vmin=0, vmax=max_cap)
                 
                 # Plot the subset data with a colormap
                 img = ax.imshow(subset_data, cmap="viridis", norm=norm, origin='lower', 
                                 extent=(plot_range[2], plot_range[3], plot_range[0], plot_range[1]))
+                #img = ax.imshow(subset_data, cmap="viridis", origin='lower', 
+                #                extent=(plot_range[2], plot_range[3], plot_range[0], plot_range[1]))
                 plt.colorbar(img, ax=ax, label='Intensity')
                 
                 # Adjust peaks' positions relative to the plot_range
@@ -314,7 +319,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 to_go_back = os.getcwd()
                 os.chdir(f"{to_go_back}/Data/{temperature}/{voltage}/")
                 # Save the figure with specified dpi (higher dpi = higher resolution)
-                plt.savefig(fname = f"{plane}.pdf", dpi=300, bbox_inches='tight')
+                plt.savefig(fname = f"{plane}.png", dpi=300, bbox_inches='tight')
                 plt.close()
                 os.chdir(to_go_back)
                 #plt.show()
@@ -348,6 +353,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 else:
                     non_merged_I_avg.append(background_I)
 
+                log_data(f"Temperature = {temperature} and Voltage = {voltage}", "")
                 log_data(f"Plane {plane} (is merged = {merged}; Background intensity = {background_I}):", f"Peaks intensities: {peaks_intensities}")
 
                 peaks_intensities_list = list(peaks_intensities.values())
@@ -355,7 +361,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 chirality_list.append(chirality)
 
                 title = str(plane) + "; Chirality: " + str(chirality)
-                plot_HKplane(UnitCell_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage)
+                plot_HKplane(UnitCell_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage, merged)
 
 
         intensity_inPlane_run()
@@ -493,20 +499,23 @@ def main_gathering(base_dir: str, local_dir: str, Planes: list[str]) -> None:
 TEMPERATURES = ["15K", "80K", "45K", "75K", "15K_low_strain", 
                  "15K_medium_strain", "15K_high_strain", "80K_low_strain", "80K_medium_strain", "80K_high_strain"]  # Add temperatures here
 
-VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], "80K": ["0.0", "8.0", "12.0", "14.5", "29.0", "38.0", "55.0"], "45K": ["74.0"], "75K": ["58.0"], 
+VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"], 
+            "80K": ["0.0", "8.0", "12.0", "14.5", "16.0", "18.0", "20.0", "24.0", "27.0", "29.0", "32.0", "38.0", "41.0", "42.0", "47.0", "48.0", "55.0"],
+            "45K": ["74.0"], 
+            "75K": ["58.0"], 
             "15K_low_strain": ["20.0"], "15K_medium_strain": ["83.0"], "15K_high_strain": ["115.0"],
             "80K_low_strain": ["26.0"], "80K_medium_strain": ["30.0"], "80K_high_strain": ["95.0"]}  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-#planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,0)"]
-planes = ["(h,3,l)", "(3,k,l)", "(h,0,l)"]
+planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,0)"]
+#planes = ["(h,3,l)", "(3,k,l)", "(h,0,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
 labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "blue", "red", "blue", "red"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
 
-in_plane = False # choose what to run the code for
+in_plane = True # choose what to run the code for
 
 # For benchmarking the difference between merged and non-merged data
 
