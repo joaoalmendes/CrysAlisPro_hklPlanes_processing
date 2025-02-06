@@ -4,6 +4,7 @@ from scipy.ndimage import gaussian_filter
 from ase import Atoms
 from ase import io
 from ase.visualize import view
+from ase.geometry import cellpar_to_cell
 from mpl_toolkits.mplot3d import Axes3D
 import re
 
@@ -24,11 +25,11 @@ def model_positions_to_ASE_positions(model_positions):
     return bulk
 
 def unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions):
-    
+    cell_matrix = cellpar_to_cell([a, b, c, alpha, beta, gamma])
     atoms = Atoms(
         formula,
-        positions=input_positions,
-        cell=[a, b, c, alpha, beta, gamma],
+        positions=np.dot(input_positions, cell_matrix),
+        cell=cell_matrix,
         pbc=True,
     )
 
@@ -96,7 +97,7 @@ def LP_correction(q_norm, wavelength):
 
     return LP_normalized
 
-def DW_correction(q, B = 0.005):
+def DW_correction(q, B = 0.001):
     return np.float64(np.exp(-B * q**2))
 
 def I_hkl(atoms, hkl, r_lattice, twin_angles, twin_fractions, wavelength = 1.54):
@@ -111,7 +112,6 @@ def I_hkl(atoms, hkl, r_lattice, twin_angles, twin_fractions, wavelength = 1.54)
 
 def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fractions):
     recip_lattice = np.round(np.linalg.inv(atoms.get_cell().T) * (2 * np.pi), decimals=10)
-    #h_range_int, k_range_int = np.unique(np.floor(h_range).astype(int)), np.unique(np.floor(k_range).astype(int))
     for l in l_cuts:
         h, k = np.meshgrid(h_range, k_range)
         intensity = np.zeros((len(h_range), len(k_range)))
@@ -342,7 +342,7 @@ alpha, beta, gamma = 90, 90, 90
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
 bulk_dimensions = (5, 5, 5)
-twin_angles, twin_populations = [0, 120, 240], [np.float64(1), np.float64(0.0), np.float64(0.0)]
+twin_angles, twin_populations = [0, 120, 240], [np.float64(0.45), np.float64(0.05), np.float64(0.45)]
 
 h_range = np.arange(-5, 5, 0.1)
 k_range = np.arange(-5, 5, 0.1)
@@ -355,9 +355,9 @@ bulk = unit_cell_ASE.repeat(bulk_dimensions)
 
 #view(bulk)
 
-original_structure = io.read('CsV3Sb5.cif')
-bulk_original = original_structure.repeat(bulk_dimensions)
+#original_structure = io.read('CsV3Sb5.cif')
+#bulk_original = original_structure.repeat(bulk_dimensions)
 #view(bulk_original)
 
-plot_XRD_pattern(h_range, k_range, l_cuts, bulk_original, twin_angles, twin_populations)
+plot_XRD_pattern(h_range, k_range, l_cuts, bulk, twin_angles, twin_populations)
 
