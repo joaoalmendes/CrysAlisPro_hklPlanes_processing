@@ -6,7 +6,6 @@ from ase import io
 from ase.visualize import view
 from ase.geometry import cellpar_to_cell
 from mpl_toolkits.mplot3d import Axes3D
-import re
 
 def model_positions_to_ASE_positions(model_positions):
     input_pos_list = []
@@ -68,12 +67,24 @@ def shape_factor(hkl, dimensions):
     
     return sinc(Nx * h) * sinc(Ny * k) * sinc(Nz * l)
 
-def rotate_reciprocal_lattice(hkl, angle_deg):
-    h, k, l = hkl
-    angle_rad = np.radians(angle_deg)
-    h_rot = h * np.cos(angle_rad) - k * np.sin(angle_rad)
-    k_rot = h * np.sin(angle_rad) + k * np.cos(angle_rad)
-    return (h_rot, k_rot, l)
+def precompute_rotation_matrices(angles_deg):
+    """ Precompute the 2D rotation matrices for a list of angles using NumPy operations. """
+    angles_deg = np.array(angles_deg)
+    angles_rad = np.radians(angles_deg)  # Convert all angles to radians at once
+    cos_vals = np.cos(angles_rad)
+    sin_vals = np.sin(angles_rad)
+
+    # Stack rotation matrices in a dictionary
+    return {
+        angle: np.array([[c, -s], [s, c]])
+        for angle, c, s in zip(angles_deg, cos_vals, sin_vals)
+    }
+
+def rotate_reciprocal_lattice(hkl, angle_deg, rotation_matrices):
+    """Rotate (h, k, l) using a precomputed rotation matrix with NumPy operations."""
+    hkl_array = np.asarray(hkl)
+    h_k_rot = np.dot(rotation_matrices[angle_deg], hkl_array[:2])  # Use np.dot()
+    return np.hstack((h_k_rot, hkl_array[2]))  # Efficient concatenation
 
 def LP_correction(q_norm, wavelength):
     argument = wavelength * q_norm / (4 * np.pi)
@@ -100,18 +111,19 @@ def LP_correction(q_norm, wavelength):
 def DW_correction(q, B = 0.001):
     return np.float64(np.exp(-B * q**2))
 
-def I_hkl(atoms, hkl, r_lattice, twin_angles, twin_fractions, wavelength = 1.54):
-    I_total = 0
+def I_hkl(atoms, hkl, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength = 1.54):
+    F_total = 0
     for twin_angle, twin_fraction in zip(twin_angles, twin_fractions):
-        hkl_twin = rotate_reciprocal_lattice(hkl, twin_angle)
+        hkl_twin = rotate_reciprocal_lattice(hkl, twin_angle, rotation_matrices)
         G = np.dot(hkl_twin, r_lattice)
         q = np.linalg.norm(G)  # Magnitude of reciprocal lattice vector
         F_twin = F_hkl(atoms, G, q) * twin_fraction * DW_correction(q) * LP_correction(q, wavelength)
-        I_total += np.abs(F_twin)**2
-    return I_total
+        F_total += F_twin
+    return np.abs(F_total)**2
 
 def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fractions):
     recip_lattice = np.round(np.linalg.inv(atoms.get_cell().T) * (2 * np.pi), decimals=10)
+    rotation_matrices = precompute_rotation_matrices(twin_angles)
     for l in l_cuts:
         h, k = np.meshgrid(h_range, k_range)
         intensity = np.zeros((len(h_range), len(k_range)))
@@ -120,7 +132,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
             for j in range(len(k_range)):
                 hkl = (h[i, j], k[i, j], l)
                 hkl = tuple(np.round(hkl, decimals=10))
-                intensity[i, j] = I_hkl(atoms, hkl, recip_lattice, twin_angles, twin_fractions)
+                intensity[i, j] = I_hkl(atoms, hkl, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
 
         intensity /= np.max(intensity)  # Normalize
         intensity = gaussian_filter(intensity, sigma=1.5)  # Smooth
@@ -142,163 +154,6 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         plt.savefig(f"sim_hk{l}.png", dpi = 300)
         plt.close()
     return None
-
-class CustomAtoms:
-    def __init__(self, formula, positions, cell, pbc=True):
-        self.formula = formula
-        self.positions = np.array(positions)  # Atomic positions
-        self.pbc = pbc  # Periodic Boundary Conditions flag
-
-        # If cell is given as 3 parameters, convert it to 6
-        if len(cell) == 3:
-            # Assuming cell is passed as lattice vectors
-            self.cell = self._calculate_cell_from_vectors(cell)
-        elif len(cell) == 6:
-            # Assuming cell is passed as lattice parameters [a, b, c, alpha, beta, gamma]
-            self.cell = self._calculate_cell_matrix(cell)
-        else:
-            raise ValueError("The cell must be specified with either 3 lattice vectors or 6 parameters (a, b, c, alpha, beta, gamma).")
-
-        # Ensure the cell is 3x3
-        if self.cell.ndim != 2 or self.cell.shape != (3, 3):
-            raise ValueError(f"The cell must be a 3x3 matrix, but received shape {self.cell.shape}.")
-
-        # Parse formula to determine the atom types and their counts
-        self.atom_types = self.parse_formula(formula)
-        
-        # Ensure number of atom types matches number of positions
-        total_atoms = len(self.atom_types)
-        if total_atoms != len(self.positions):
-            raise ValueError(f"The number of atom types ({total_atoms}) does not match the number of positions ({len(self.positions)}).")
-
-    def _calculate_cell_matrix(self, cell):
-        """
-        Convert cell parameters [a, b, c, alpha, beta, gamma] to a 3x3 matrix.
-        Angles are given in degrees, so we convert them to radians.
-        """
-        a, b, c, alpha, beta, gamma = cell
-        alpha = np.radians(alpha)
-        beta = np.radians(beta)
-        gamma = np.radians(gamma)
-
-        # Calculate the 3x3 matrix using the formula
-        cell_matrix = np.zeros((3, 3))
-        cell_matrix[0] = [a, 0, 0]
-        cell_matrix[1] = [b * np.cos(gamma), b * np.sin(gamma), 0]
-        cell_matrix[2] = [
-            c * np.cos(beta),
-            c * (np.cos(alpha) - np.cos(beta) * np.cos(gamma)) / np.sin(gamma),
-            c * np.sqrt(1 - np.cos(beta)**2 - (np.cos(alpha) - np.cos(beta) * np.cos(gamma))**2)
-        ]
-        return cell_matrix
-
-    def _calculate_cell_from_vectors(self, cell_vectors):
-        """
-        Converts 3 lattice vectors into a 3x3 matrix (direct lattice matrix).
-        """
-        if len(cell_vectors) != 3:
-            raise ValueError("Cell vectors must be a list of 3 vectors.")
-        
-        return np.array(cell_vectors)
-
-    def get_cell(self):
-        return self.cell
-
-    def get_positions(self):
-        return self.positions
-
-    def get_chemical_symbols(self):
-        return self.atom_types
-    
-    def parse_formula(self, formula):
-        """
-        Parses the formula string to determine atom types and counts.
-        Handles both single-letter and multi-letter atomic symbols.
-        Example:
-        For formula 'CsV3Sb5', it should return ['Cs', 'V', 'V', 'V', 'Sb', 'Sb', 'Sb', 'Sb', 'Sb']
-        """
-        # Regular expression to match elements and their counts
-        pattern = r'([A-Z][a-z]?)(\d*)'
-        atom_counts = []
-        atom_types = []
-        
-        for element, count in re.findall(pattern, formula):
-            count = int(count) if count else 1  # Default count to 1 if not specified
-            atom_types.extend([element] * count)
-        
-        return atom_types
-
-    def replicate(self, repeats):
-        """
-        Replicate the unit cell to create a bulk structure.
-        `repeats` is a tuple (nx, ny, nz) indicating the number of times to replicate along each axis.
-        """
-        if len(repeats) != 3:
-            raise ValueError("The input 'repeats' must be a tuple with three elements (nx, ny, nz).")
-        
-        nx, ny, nz = repeats
-        replicated_positions = []
-        
-        # Replicate positions in x, y, and z directions
-        for i in range(nx):
-            for j in range(ny):
-                for k in range(nz):
-                    # Translate the positions by the corresponding multiples of the unit cell
-                    offset = np.array([i, j, k])
-                    
-                    # Add the positions with the offset
-                    for pos in self.positions:
-                        replicated_positions.append(pos + offset)
-        
-        # Replicate the atom types the same number of times as the number of positions
-        total_atoms = len(self.atom_types)
-        replicated_atom_types = self.atom_types * (nx * ny * nz)
-
-        # Ensure the number of atom types matches the number of positions
-        if len(replicated_atom_types) != len(replicated_positions):
-            print(f"Error! Number of atom types: {len(replicated_atom_types)}, number of positions: {len(replicated_positions)}")
-            raise ValueError(f"The number of atom types ({len(replicated_atom_types)}) does not match the number of positions ({len(replicated_positions)}).")
-        
-        # Return a new CustomAtoms object with the replicated positions and atom types
-        return CustomAtoms(self.formula, replicated_positions, self.cell, self.pbc)
-
-
-
-
-
-
-
-    
-    def visualize_3d(self):
-        """Visualize the atomic positions in 3D with different colors for each atom type."""
-        import matplotlib.pyplot as plt
-        from mpl_toolkits.mplot3d import Axes3D
-        
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d')
-        
-        # Extract x, y, z coordinates from positions
-        x, y, z = self.positions[:, 0], self.positions[:, 1], self.positions[:, 2]
-        
-        # Map atom types to colors
-        atom_colors = {'Cs': 'red', 'V': 'blue', 'Sb': 'green', 'X': 'black'}  # Example color map
-        colors = [atom_colors.get(atom, 'gray') for atom in self.atom_types]
-        
-        # Scatter plot of atomic positions
-        ax.scatter(x, y, z, c=colors, marker='o')
-        
-        # Labels and titles
-        ax.set_xlabel('X')
-        ax.set_ylabel('Y')
-        ax.set_zlabel('Z')
-        ax.set_title('3D Atomic Structure')
-        
-        # Show plot
-        plt.show()
-
-
-    def __repr__(self):
-        return f"CustomAtoms(formula={self.formula}, cell={self.cell}, positions={self.positions})"
 
 model_1_positions = {
     "Cs": [(0, 0, 0.750748), (0.25, 0.25, 0.25)],
@@ -341,7 +196,7 @@ a, b, c = 10.971314, 18.9833, 18.51410
 alpha, beta, gamma = 90, 90, 90
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (5, 5, 5)
+bulk_dimensions = (3, 3, 10)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.45), np.float64(0.05), np.float64(0.45)]
 
 h_range = np.arange(-5, 5, 0.1)
@@ -352,7 +207,6 @@ input_positions = model_positions_to_ASE_positions(model_1_positions)
 unit_cell_ASE = unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions)
 
 bulk = unit_cell_ASE.repeat(bulk_dimensions)
-
 #view(bulk)
 
 #original_structure = io.read('CsV3Sb5.cif')
