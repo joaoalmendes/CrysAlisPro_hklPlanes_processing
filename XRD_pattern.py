@@ -14,15 +14,6 @@ def model_positions_to_ASE_positions(model_positions):
             input_pos_list.append(j)
     return input_pos_list
 
-#def unit_cell(a, b, c, formula, atoms_positions):
-    bulk = Atoms(
-        formula,
-        positions=atoms_positions,
-        cell=[a, b, c, 90, 90, 90],
-        pbc=True,
-    )
-    return bulk
-
 def unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions):
     cell_matrix = cellpar_to_cell([a, b, c, alpha, beta, gamma])
     atoms = Atoms(
@@ -42,21 +33,45 @@ def atomic_form_factor(atom, q):
     }
     return factors[atom](q)
 
-def F_hkl(atoms, G_vector, q_norm):    
-    # Precompute atomic form factors for each unique atom type
-    atom_types = np.unique(atoms.get_chemical_symbols())  # Get unique atom types
-    form_factors = {atom: atomic_form_factor(atom, q_norm) for atom in atom_types}
+def F_hkl(atoms, G_vectors, q_values, batch_size_atoms=500, batch_size_hkl=5000):    
+    """Computes the structure factor F_hkl in a memory-efficient way using batch processing."""
+    
+    atom_types = np.unique(atoms.get_chemical_symbols())
+    form_factors = {atom: atomic_form_factor(atom, q_values) for atom in atom_types}
 
-    # Get the atomic positions and symbols
     positions = atoms.get_positions()
-    symbols = atoms.get_chemical_symbols()
+    symbols = np.array(atoms.get_chemical_symbols())
 
-    # Vectorized computation of structure factor
-    exp_terms = np.exp(-1j * 2 * np.pi * np.dot(positions, G_vector))  # Phase term for all atoms
-    f_atoms = np.array([form_factors[symbol] for symbol in symbols])  # Form factors for all atoms
-    # Compute the structure factor
-    F_hkl = np.sum(f_atoms * exp_terms)  # Sum over all atoms
-    return F_hkl
+    num_hkl = G_vectors.shape[0]
+    num_atoms = positions.shape[0]
+    
+    F_hkl_values = np.zeros(num_hkl, dtype=np.complex128)
+
+    # Process hkl in batches
+    for i in range(0, num_hkl, batch_size_hkl):
+        G_batch = G_vectors[i:i + batch_size_hkl]  # Select batch of G vectors
+        q_batch = q_values[i:i + batch_size_hkl]
+
+        F_batch = np.zeros(G_batch.shape[0], dtype=np.complex128)
+
+        # Process atoms in smaller batches
+        for j in range(0, num_atoms, batch_size_atoms):
+            pos_batch = positions[j:j + batch_size_atoms]  # Atom positions batch
+            sym_batch = symbols[j:j + batch_size_atoms]  # Atom types batch
+            
+            # Compute form factors for this batch of atoms
+            f_atoms = np.array([form_factors[s][i:i + batch_size_hkl] for s in sym_batch])  # Shape (batch_size_atoms, batch_size_hkl)
+
+            # Compute phase terms for this subset of atoms
+            phase_terms = np.exp(-1j * 2 * np.pi * np.dot(pos_batch, G_batch.T))  # Shape (batch_size_atoms, batch_size_hkl)
+
+            # Correct broadcasting for multiplication
+            F_batch += np.sum(f_atoms * phase_terms, axis=0)  # Sum over atoms in batch
+
+        # Store the computed F_hkl values for this batch of hkl
+        F_hkl_values[i:i + batch_size_hkl] = F_batch  
+
+    return F_hkl_values
 
 def shape_factor(hkl, dimensions):
     Nx, Ny, Nz = dimensions
@@ -80,11 +95,9 @@ def precompute_rotation_matrices(angles_deg):
         for angle, c, s in zip(angles_deg, cos_vals, sin_vals)
     }
 
-def rotate_reciprocal_lattice(hkl, angle_deg, rotation_matrices):
-    """Rotate (h, k, l) using a precomputed rotation matrix with NumPy operations."""
-    hkl_array = np.asarray(hkl)
-    h_k_rot = np.dot(rotation_matrices[angle_deg], hkl_array[:2])  # Use np.dot()
-    return np.hstack((h_k_rot, hkl_array[2]))  # Efficient concatenation
+def rotate_reciprocal_lattice(hkl_array, angle_deg, rotation_matrices):
+    h_k_rot = np.dot(hkl_array[:, :2], rotation_matrices[angle_deg].T)  # Vectorized rotation
+    return np.hstack((h_k_rot, hkl_array[:, 2][:, np.newaxis]))  # Preserve shape
 
 def LP_correction(q_norm, wavelength):
     argument = wavelength * q_norm / (4 * np.pi)
@@ -108,32 +121,43 @@ def LP_correction(q_norm, wavelength):
 
     return LP_normalized
 
-def DW_correction(q, B = 0.001):
+def DW_correction(q, B = 0.05):
     return np.float64(np.exp(-B * q**2))
 
-def I_hkl(atoms, hkl, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength = 1.54):
-    F_total = 0
+def I_hkl(atoms, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength=1.54, batch_size_hkl=5000):
+    num_hkl = hkl_array.shape[0]
+    F_total = np.zeros(num_hkl, dtype=np.complex128)
+
     for twin_angle, twin_fraction in zip(twin_angles, twin_fractions):
-        hkl_twin = rotate_reciprocal_lattice(hkl, twin_angle, rotation_matrices)
-        G = np.dot(hkl_twin, r_lattice)
-        q = np.linalg.norm(G)  # Magnitude of reciprocal lattice vector
-        F_twin = F_hkl(atoms, G, q) * twin_fraction * DW_correction(q) * LP_correction(q, wavelength)
-        F_total += F_twin
+        hkl_twin = rotate_reciprocal_lattice(hkl_array, twin_angle, rotation_matrices)
+        G_vectors = np.dot(hkl_twin, r_lattice.T)
+        q_values = np.linalg.norm(G_vectors, axis=1)
+
+        for i in range(0, num_hkl, batch_size_hkl):
+            G_batch = G_vectors[i:i + batch_size_hkl]
+            q_batch = q_values[i:i + batch_size_hkl]
+
+            F_twin = (
+                F_hkl(atoms, G_batch, q_batch) * twin_fraction *
+                DW_correction(q_batch) * LP_correction(q_batch, wavelength)
+            )
+            F_total[i:i + batch_size_hkl] += F_twin
+
     return np.abs(F_total)**2
 
 def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fractions):
     recip_lattice = np.round(np.linalg.inv(atoms.get_cell().T) * (2 * np.pi), decimals=10)
     rotation_matrices = precompute_rotation_matrices(twin_angles)
+    
+    h_grid, k_grid = np.meshgrid(h_range, k_range, indexing='ij')  # Ensure correct indexing
+    hkl_array = np.column_stack((h_grid.ravel(), k_grid.ravel()))  # Flatten h and k values
+
     for l in l_cuts:
-        h, k = np.meshgrid(h_range, k_range)
-        intensity = np.zeros((len(h_range), len(k_range)))
+        hkl_values = np.hstack((hkl_array, np.full((hkl_array.shape[0], 1), l)))  # Add l column
+        intensity = I_hkl(atoms, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
+        intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        for i in range(len(h_range)):
-            for j in range(len(k_range)):
-                hkl = (h[i, j], k[i, j], l)
-                hkl = tuple(np.round(hkl, decimals=10))
-                intensity[i, j] = I_hkl(atoms, hkl, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
-
+        # Here you would plot intensity, save it, etc.
         intensity /= np.max(intensity)  # Normalize
         intensity = gaussian_filter(intensity, sigma=1.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
@@ -143,7 +167,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         ax = fig.add_subplot(111)
 
         # Plot the intensity as a heatmap
-        c = ax.pcolormesh(h, k, intensity, shading='auto', cmap='inferno')
+        c = ax.pcolormesh(h_grid, k_grid, intensity, shading='auto', cmap='inferno')
         fig.colorbar(c, label='Intensity')
 
         # Labels and title
@@ -196,12 +220,12 @@ a, b, c = 10.971314, 18.9833, 18.51410
 alpha, beta, gamma = 90, 90, 90
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (3, 3, 10)
-twin_angles, twin_populations = [0, 120, 240], [np.float64(0.45), np.float64(0.05), np.float64(0.45)]
+bulk_dimensions = (3, 3, 5)
+twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
 
 h_range = np.arange(-5, 5, 0.1)
 k_range = np.arange(-5, 5, 0.1)
-l_cuts = [0, 0.25, 0.5]
+l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.5)]
 
 input_positions = model_positions_to_ASE_positions(model_1_positions)
 unit_cell_ASE = unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions)
@@ -209,8 +233,8 @@ unit_cell_ASE = unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions)
 bulk = unit_cell_ASE.repeat(bulk_dimensions)
 #view(bulk)
 
-#original_structure = io.read('CsV3Sb5.cif')
-#bulk_original = original_structure.repeat(bulk_dimensions)
+original_structure = io.read('CsV3Sb5.cif')
+bulk_original = original_structure.repeat(bulk_dimensions)
 #view(bulk_original)
 
 plot_XRD_pattern(h_range, k_range, l_cuts, bulk, twin_angles, twin_populations)
