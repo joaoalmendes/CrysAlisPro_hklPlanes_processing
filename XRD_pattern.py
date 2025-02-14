@@ -5,7 +5,6 @@ from ase import Atoms
 from ase import io
 from ase.visualize import view
 from ase.geometry import cellpar_to_cell
-from mpl_toolkits.mplot3d import Axes3D
 
 def model_positions_to_ASE_positions(model_positions):
     input_pos_list = []
@@ -14,7 +13,8 @@ def model_positions_to_ASE_positions(model_positions):
             input_pos_list.append(j)
     return input_pos_list
 
-def unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions):
+def unit_cell(cell_params, formula, input_positions):
+    a, b, c, alpha, beta, gamma = cell_params
     cell_matrix = cellpar_to_cell([a, b, c, alpha, beta, gamma])
     atoms = Atoms(
         formula,
@@ -24,6 +24,47 @@ def unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions):
     )
 
     return atoms
+
+def in_plane_bulk(model_positions, cell_params, formula, in_plane_repeats):
+    """Create a single in-plane bulk (one layer) by repeating a model."""
+    a, b, c, alpha, beta, gamma = cell_params
+    cell_matrix = cellpar_to_cell([a, b, c, alpha, beta, gamma])
+    positions = model_positions_to_ASE_positions(model_positions)
+    unit_cell = Atoms(formula, positions=np.dot(positions, cell_matrix), cell=cell_matrix, pbc=True)
+
+    bulk_layer = unit_cell.repeat((in_plane_repeats[0], in_plane_repeats[1], 1))
+    
+    return bulk_layer
+
+def create_two_layer_unit_cell(layer_1, layer_2, interlayer_shift=None):
+    """Creates a new unit cell with two stacked layers, applying an interlayer shift."""
+    
+    # Make copies to avoid modifying original layers
+    layer_1 = layer_1.copy()
+    layer_2 = layer_2.copy()
+
+    # Apply interlayer shift to layer_2 if specified
+    if interlayer_shift:
+        dx, dy = interlayer_shift
+        layer_2.positions[:, 0] += dx
+        layer_2.positions[:, 1] += dy
+
+    # Stack layer_2 on top of layer_1
+    layer_2.positions[:, 2] += layer_1.cell[2, 2]  # Shift by c-axis value
+    
+    # Combine both layers into a single Atoms object
+    two_layer_unit = layer_1 + layer_2  # ASE allows adding Atoms objects
+    
+    # Update the unit cell height to fit both layers
+    new_cell = layer_1.cell.copy()
+    new_cell[2, 2] *= 2  # Double the c-axis length
+    two_layer_unit.set_cell(new_cell)
+    
+    return two_layer_unit
+
+def build_full_bulk(two_layer_unit, num_repeats):
+    """Creates the full bulk structure by repeating the two-layer unit cell in the z-direction."""
+    return two_layer_unit.repeat((1, 1, num_repeats[2]))
 
 def atomic_form_factor(atom, q):
     factors = {
@@ -73,15 +114,6 @@ def F_hkl(atoms, G_vectors, q_values, batch_size_atoms=500, batch_size_hkl=5000)
 
     return F_hkl_values
 
-def shape_factor(hkl, dimensions):
-    Nx, Ny, Nz = dimensions
-    """Compute shape factor S(hkl) for a finite N-unit-cell crystal"""
-    h, k, l = hkl
-    def sinc(x):
-        return 1 if x == 0 else np.sin(np.pi * x) / (np.pi * x)
-    
-    return sinc(Nx * h) * sinc(Ny * k) * sinc(Nz * l)
-
 def precompute_rotation_matrices(angles_deg):
     """ Precompute the 2D rotation matrices for a list of angles using NumPy operations. """
     angles_deg = np.array(angles_deg)
@@ -121,7 +153,7 @@ def LP_correction(q_norm, wavelength):
 
     return LP_normalized
 
-def DW_correction(q, B = 0.05):
+def DW_correction(q, B = 0.5):
     return np.float64(np.exp(-B * q**2))
 
 def I_hkl(atoms, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength=1.54, batch_size_hkl=5000):
@@ -157,9 +189,8 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         intensity = I_hkl(atoms, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        # Here you would plot intensity, save it, etc.
-        intensity /= np.max(intensity)  # Normalize
-        intensity = gaussian_filter(intensity, sigma=1.5)  # Smooth
+        intensity /= (np.max(intensity)/10e3)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
         # Plot the intensity map
@@ -167,7 +198,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         ax = fig.add_subplot(111)
 
         # Plot the intensity as a heatmap
-        c = ax.pcolormesh(h_grid, k_grid, intensity, shading='auto', cmap='inferno')
+        c = ax.pcolormesh(h_grid, k_grid, intensity, shading='auto', cmap='viridis')
         fig.colorbar(c, label='Intensity')
 
         # Labels and title
@@ -218,24 +249,33 @@ model_2_positions = {
 # Initial undistorted lattice constants (Å)
 a, b, c = 10.971314, 18.9833, 18.51410  
 alpha, beta, gamma = 90, 90, 90
+cell_params = (a, b, c, alpha, beta, gamma)
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (3, 3, 5)
+bulk_dimensions = (10, 10, 15)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
 
-h_range = np.arange(-5, 5, 0.1)
-k_range = np.arange(-5, 5, 0.1)
+h_range = np.arange(-4, 4, 0.1)
+k_range = np.arange(-4, 4, 0.1)
 l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.5)]
 
-input_positions = model_positions_to_ASE_positions(model_1_positions)
-unit_cell_ASE = unit_cell(a, b, c, alpha, beta, gamma, formula, input_positions)
+#input_positions = model_positions_to_ASE_positions(model_2_positions)
+#unit_cell_ASE = unit_cell(cell_params, formula, input_positions)
 
-bulk = unit_cell_ASE.repeat(bulk_dimensions)
+#bulk = unit_cell_ASE.repeat(bulk_dimensions)
 #view(bulk)
 
-original_structure = io.read('CsV3Sb5.cif')
-bulk_original = original_structure.repeat(bulk_dimensions)
+#original_structure = io.read('CsV3Sb5.cif')
+#bulk_original = original_structure.repeat(bulk_dimensions)
 #view(bulk_original)
+
+layer_1 = in_plane_bulk(model_1_positions, cell_params, formula, bulk_dimensions)
+layer_2 = in_plane_bulk(model_2_positions, cell_params, formula, bulk_dimensions)
+
+interlayer_shift = (0.5 * a, 0)
+two_layer_cell = create_two_layer_unit_cell(layer_1, layer_2, interlayer_shift)
+
+bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
 
 plot_XRD_pattern(h_range, k_range, l_cuts, bulk, twin_angles, twin_populations)
 
