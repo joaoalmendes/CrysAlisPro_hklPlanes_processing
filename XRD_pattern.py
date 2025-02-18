@@ -36,7 +36,7 @@ def in_plane_bulk(model_positions, cell_params, formula, in_plane_repeats):
     
     return bulk_layer
 
-def create_two_layer_unit_cell(layer_1, layer_2, interlayer_shift=None):
+def create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift=None):
     """Creates a new unit cell with two stacked layers, applying an interlayer shift."""
     
     # Make copies to avoid modifying original layers
@@ -61,6 +61,44 @@ def create_two_layer_unit_cell(layer_1, layer_2, interlayer_shift=None):
     two_layer_unit.set_cell(new_cell)
     
     return two_layer_unit
+
+def create_2x2x4_unit_cell(layer_1, layer_2, layer_3, layer_4, interlayer_shifts=None):
+    """Creates a new unit cell with four stacked layers, applying interlayer shifts if specified.
+    
+    Parameters:
+    - layer_1, layer_2, layer_3, layer_4: ASE Atoms objects for the four layers
+    - interlayer_shifts: List of (dx, dy) shifts for layers 2, 3, and 4 relative to the previous one
+    """
+
+    # Make copies to avoid modifying the original layers
+    layers = [layer_1.copy(), layer_2.copy(), layer_3.copy(), layer_4.copy()]
+
+    # Default shifts if not provided
+    if interlayer_shifts is None:
+        interlayer_shifts = [(0, 0), (0, 0), (0, 0)]  # No shift by default
+
+    if len(interlayer_shifts) != 3:
+        raise ValueError("interlayer_shifts must be a list of 3 (dx, dy) tuples.")
+
+    # Apply interlayer shifts to layers 2, 3, and 4
+    for i, shift in enumerate(interlayer_shifts):
+        dx, dy = shift
+        layers[i + 1].positions[:, 0] += dx  # Shift in x
+        layers[i + 1].positions[:, 1] += dy  # Shift in y
+
+    # Correctly stack layers along the c-axis
+    for i in range(1, 4):  # Start from layer 2, shifting based on the previous one
+        layers[i].positions[:, 2] += i * layers[0].cell[2, 2]  # Ensure proper stacking
+
+    # Combine all four layers into a single Atoms object
+    four_layer_unit = sum(layers, Atoms())
+
+    # Update the unit cell height to fit four layers
+    new_cell = layers[0].cell.copy()
+    new_cell[2, 2] *= 4  # Correctly increase the c-axis length
+    four_layer_unit.set_cell(new_cell)
+
+    return four_layer_unit
 
 def build_full_bulk(two_layer_unit, num_repeats):
     """Creates the full bulk structure by repeating the two-layer unit cell in the z-direction."""
@@ -189,7 +227,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         intensity = I_hkl(atoms, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        intensity /= (np.max(intensity)/10e3)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        intensity /= (np.max(intensity)/10e1)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
         intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
@@ -252,7 +290,7 @@ alpha, beta, gamma = 90, 90, 90
 cell_params = (a, b, c, alpha, beta, gamma)
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (10, 10, 15)
+bulk_dimensions = (10, 10, 10)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
 
 h_range = np.arange(-4, 4, 0.1)
@@ -270,12 +308,13 @@ l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.5)]
 #view(bulk_original)
 
 layer_1 = in_plane_bulk(model_1_positions, cell_params, formula, bulk_dimensions)
-layer_2 = in_plane_bulk(model_2_positions, cell_params, formula, bulk_dimensions)
+layer_2 = in_plane_bulk(model_1_positions, cell_params, formula, bulk_dimensions)
 
 interlayer_shift = (0.5 * a, 0)
-two_layer_cell = create_two_layer_unit_cell(layer_1, layer_2, interlayer_shift)
+two_layer_cell = create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift)
+four_layer_cell = create_2x2x4_unit_cell(layer_1, layer_2, layer_1, layer_1, [interlayer_shift]*3)
 
 bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
-
+#view(bulk)
 plot_XRD_pattern(h_range, k_range, l_cuts, bulk, twin_angles, twin_populations)
 
