@@ -367,25 +367,6 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         intensity_inPlane_run()
         return print("Runned for Intensity values calculation for in-plane cuts.")
 
-# Traverse folder structure to store the data for each point
-def main_processing(base_dir: str, Planes: list[str]) -> None:
-    data_dir = os.path.join(base_dir, "Data")  # Add 'Data' folder in the traversal
-    for temp_dir in os.listdir(data_dir):
-        temp_path = os.path.join(data_dir, temp_dir)
-        if os.path.isdir(temp_path):
-            for voltage_dir in os.listdir(temp_path):
-                voltage_path = os.path.join(temp_path, voltage_dir)
-                data_path = os.path.join(voltage_path, "data")
-                
-                if os.path.isdir(data_path):
-                    img_files = [os.path.join(data_path, f) for f in os.listdir(data_path) if f.endswith(".img")]
-                    
-                    if img_files:
-                        temperature, voltage = extract_temp_voltage(data_path)
-                        process_img_files(img_files, voltage_path, temperature, voltage, Planes)
-
-# Data gathering and transfering to local directory unit
-
 # Log peak data to the log.data file
 def log_data(message: str, info: str, log_file="log.data") -> None:
     with open(log_file, "a") as f:  # Append to log file
@@ -400,98 +381,130 @@ def log_error(message: str, log_file="log.error") -> None:
         f.write(message + "\n")
         f.write("\n")
 
-# Function to process temperature and voltage folders in the Cloud Storage directory
-def process_temperature_and_voltage(base_dir: str, local_dir: str, Planes: list[str]) -> None:
-    for temp in TEMPERATURES:
-        temp_path = os.path.join(base_dir, temp)
-        print(f"Processing {temp_path}")
-        if not os.path.exists(temp_path):
-            log_error(f"Temperature folder not found in Z: {temp}")
+def generate_pattern(plane: str, merged=False) -> None:
+    """
+    Generates the expected .img file name based on the plane input.
+    Uses the exact function format you specified.
+    """
+    prefix = "CsV3Sb5_strain_merged_" if merged else "CsV3Sb5_strain_"
+    if plane.startswith("(") and plane.endswith(")"):
+        plane_content = plane.strip("()").replace(",", "_")
+        return f"{prefix}{plane_content}.img"
+    return None
+
+def check_existing_data(local_data_path: str, Planes: list[str], merged: bool) -> bool:
+    """
+    Checks if all requested plane .img files exist in the local data folder.
+    If they do, prompts the user to decide whether to replace them.
+
+    Args:
+        local_data_path (str): Path to the local data directory.
+        Planes (list[str]): List of planes to check.
+        merged (bool): Whether merged folder is used.
+
+    Returns:
+        bool: True if data gathering should proceed, False if skipped.
+    """
+    if not os.path.exists(local_data_path):
+        return True  # Proceed if local data folder doesn't exist
+
+    existing_files = set(os.listdir(local_data_path))
+    expected_files = {generate_pattern(plane, merged) for plane in Planes}
+
+    missing_files = expected_files - existing_files  # Files that are missing
+    all_exist = len(missing_files) == 0
+
+    if all_exist:
+        user_input = input(f"All requested files are already present in {local_data_path}. Replace? (y/n): ").strip().lower()
+        return user_input == "y"
+
+    if missing_files:
+        print(f"Missing files detected in {local_data_path}. Proceeding with data gathering.")
+
+    return True  # Continue processing
+
+def process_data(base_dir: str, local_dir: str, Planes: list[str]) -> None:
+    """
+    Main function that checks for existing data, processes new data if needed, and organizes files.
+
+    Args:
+        base_dir (str): Base directory containing temperature-voltage data.
+        local_dir (str): Local directory to store gathered data.
+        Planes (list[str]): List of crystallographic planes to process.
+    """
+    data_dir = os.path.join(local_dir, "Data")  # Check only local storage first
+
+    for temp in os.listdir(data_dir):
+        temp_path = os.path.join(data_dir, temp)
+        if not os.path.isdir(temp_path):
             continue
 
-        for voltage in VOLTAGES.get(temp, []):
-            voltage_path = os.path.join(temp_path, f"V{voltage}_-{voltage}")  # Voltage folder structure in Z
-            if not os.path.exists(voltage_path):
-                log_error(f"Voltage folder not found in Z: {temp}/{voltage}")
+        for voltage in os.listdir(temp_path):
+            voltage_path = os.path.join(temp_path, voltage)
+            local_data_path = os.path.join(voltage_path, "data")
+
+            # Extract temperature and voltage
+            temperature, voltage_value = extract_temp_voltage(voltage)
+
+            # Check if gathering is needed before accessing the remote base_dir
+            if not check_existing_data(local_data_path, Planes, merged=True):  
+                print(f"Skipping data gathering for {temperature}°C, {voltage_value}V.")
                 continue
 
-            fulltth_path = os.path.join(voltage_path, "fulltth")
-            fulltth_ext_path = os.path.join(voltage_path, "fulltth_extended")
+            # Now access the base_dir only if necessary
+            remote_voltage_path = os.path.join(base_dir, temperature, f"V{voltage_value}_-{voltage_value}")
+            fulltth_path = os.path.join(remote_voltage_path, "fulltth")
+            fulltth_ext_path = os.path.join(remote_voltage_path, "fulltth_extended")
 
-            # Determine the correct subfolder to process
             parent_path = fulltth_path if os.path.exists(fulltth_path) else fulltth_ext_path
             if not os.path.exists(parent_path):
-                log_error(f"fulltth folder not found in Z: {temp}/{voltage}")
+                log_error(f"fulltth folder not found in Z: {temperature}/{voltage_value}")
                 continue
 
             merged_path = os.path.join(parent_path, "merged")
             esp_path = os.path.join(parent_path, "esp")
             unwarp_path = None
 
-            # Check merged or esp folder
             if os.path.exists(merged_path) and os.listdir(merged_path):
                 unwarp_path = os.path.join(merged_path, "unwarp")
-                MERGED = True
+                merged = True
             elif os.path.exists(esp_path) and os.listdir(esp_path):
                 unwarp_path = os.path.join(esp_path, "unwarp")
-                MERGED = False
+                merged = False
             else:
-                log_error(f"Neither 'merged' nor 'esp' folder is valid in Z: {temp}/{voltage}")
+                log_error(f"Neither 'merged' nor 'esp' folder is valid in Z: {temperature}/{voltage_value}")
                 continue
 
             if not os.path.exists(unwarp_path):
-                log_error(f"'unwarp' folder not found in Z: {temp}/{voltage}")
+                log_error(f"'unwarp' folder not found in Z: {temperature}/{voltage_value}")
                 continue
 
-            # Process files in unwarp folder
-            process_unwarp_folder(unwarp_path, temp, voltage, local_dir, Planes, MERGED)
+            # Process and copy required files only if missing or being replaced
+            found_files = 0
+            print(f"{voltage_value}V")
 
-# Function to process files in 'unwarp' folder, where the .img data files are located
-def process_unwarp_folder(unwarp_path: str, temp: str, voltage: str, local_dir: str, Planes: list[str], M: bool) -> None:
-    """
-    Processes files in the unwarp folder to find matching planes.
-    Logs temperature and voltage if a file is not found.
-    """
-    def generate_pattern(plane: str, merged=False) -> None:
-        prefix = "CsV3Sb5_strain_merged_" if merged else "CsV3Sb5_strain_"
-        if plane.startswith("(") and plane.endswith(")"):
-            plane_content = plane.strip("()").replace(",", "_")
-            return f"{prefix}{plane_content}.img"
-        return None
+            for plane in Planes:
+                pattern = generate_pattern(plane, merged)
+                print(f"Looking for files matching: {pattern}")  # Debug log
 
-    plane_patterns = [generate_pattern(plane, M) for plane in Planes]
+                for file_name in os.listdir(unwarp_path):
+                    if pattern in file_name:
+                        found_files += 1
+                        src_file = os.path.join(unwarp_path, file_name)
+                        dest_file = os.path.join(local_data_path, file_name)
 
-    found_files = 0  # Track if any files are found for logging purposes
-    print(f"{voltage}V")
-    for pattern in plane_patterns:
-        if pattern:
-            print(f"Looking for files matching: {pattern}")  # Debug log
-            file_found = False
-            for file_name in os.listdir(unwarp_path):
-                if pattern in file_name:
-                    file_found = True
-                    found_files += 1
-                    src_file = os.path.join(unwarp_path, file_name)
-                    dest_file = os.path.join(local_dir, "Data", temp, f"{voltage}V", "data", file_name)
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.copy(src_file, dest_file)
 
-                    # Copy the file
-                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                    shutil.copy(src_file, dest_file)
+                        # Handle `.Identifier` files
+                        identifier_file = os.path.join(local_data_path, f"{os.path.splitext(file_name)[0]}.Identifier")
+                        if os.path.exists(identifier_file):
+                            os.remove(identifier_file)
 
-                    # Handle `.Identifier` files
-                    identifier_file = os.path.join(local_dir, "Data", temp, f"{voltage}V", "data", f"{os.path.splitext(file_name)[0]}.Identifier")
-                    if os.path.exists(identifier_file):
-                        os.remove(identifier_file)
+            if found_files == 0:
+                log_error(f"No matching files found for planes in {temperature}/{voltage_value} at {unwarp_path}")
 
-            if not file_found:
-                log_error(f"Plane {pattern} not found for {temp}, {voltage}V at {unwarp_path}")
 
-    if found_files == 0:
-        log_error(f"No matching files found for planes in {temp}/{voltage} at {unwarp_path}")
-
-# Main function to call the main function and process temperature and voltage folders in the Cloud Storage directory
-def main_gathering(base_dir: str, local_dir: str, Planes: list[str]) -> None:
-    process_temperature_and_voltage(base_dir, local_dir, Planes)
 
 # Inputs and code execution order
 
@@ -510,7 +523,7 @@ VOLTAGES = {"15K": ["5.0", "20.0", "57.0", "125.0"],
 planes = ["(h,k,-0.25)", "(h,k,-0.5)", "(h,k,0)"]
 #planes = ["(h,3,l)", "(3,k,l)", "(h,0,l)"]
 # Change this to fit your data/needs, might need to alter the code slightly if things are too different
-labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)", "(3,-0.5,l)", "(3.5,0,l)"], ["red", "blue", "red", "blue", "red"]  # If they have the same color it means that they are equivelent points
+labels, colors = ["(-0.5,3.0,l)", "(2.5,0.5,l)", "(-3,2.5,l)"], ["red", "blue", "red"]  # If they have the same color it means that they are equivelent points
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
@@ -532,13 +545,8 @@ if __name__ == "__main__":
     if access.lower() == "y":
         mounted = input("Is the Z: drive mounted in a folder named 'z' in your /mnt/ directory? (y/n): ")
         if mounted.lower() == "y":
-            need_data_to_process = input("Do you need to copy data from the Z: drive? (y/n): ")
-            if need_data_to_process.lower() == "y":
-                print("Starting data gathering...")
-                main_gathering(base_dir, local_dir, planes)
-                print("Data gathering completed.")
                 print("Starting data processing.")
-                main_processing(local_dir, planes)
+                process_data(base_dir, local_dir, planes)
                 print("Data processing completed.")
 
                 if in_plane == True:
@@ -548,20 +556,6 @@ if __name__ == "__main__":
 
                     print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
                     log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
-
-            else:
-                print("Starting data processing.")
-                main_processing(local_dir, planes)
-                print("Data processing completed.")
-
-                if in_plane == True:
-                    print("Benchmarking results")
-
-                    ratio = (sum(merged_I_avg)/len(merged_I_avg))/(sum(non_merged_I_avg)/len(non_merged_I_avg))
-
-                    print(f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
-                    log_data("\n", f"Ratio between merged and non-merged intensity data is on average: {round(ratio, 2)}")
-
         else:
             print("Exiting script due to Z: drive not being mounted in /mnt/z/.")
             print("Please make sure the Z: drive is mounted in a folder named 'z' in your /mnt/ directory and try again.")
