@@ -6,6 +6,8 @@ from ase import io
 from ase.visualize import view
 from ase.geometry import cellpar_to_cell
 
+### Unit cell creation and modification 
+
 def model_positions_to_ASE_positions(model_positions):
     input_pos_list = []
     for i in model_positions.values():
@@ -100,9 +102,53 @@ def create_2x2x4_unit_cell(layer_1, layer_2, layer_3, layer_4, interlayer_shifts
 
     return four_layer_unit
 
-def build_full_bulk(two_layer_unit, num_repeats):
+def build_full_bulk(unit_cell, num_repeats):
     """Creates the full bulk structure by repeating the two-layer unit cell in the z-direction."""
-    return two_layer_unit.repeat((1, 1, num_repeats[2]))
+    return unit_cell.repeat((1, 1, num_repeats[2]))
+
+def degrees_to_radians(angle_deg):
+    return np.radians(angle_deg)
+
+def radians_to_degrees(angle_rad):
+    return np.degrees(angle_rad)
+
+def unit_cell_to_metric_tensor(a, b, c, alpha, beta, gamma):
+    """Convert unit cell parameters to metric tensor G."""
+    alpha, beta, gamma = map(degrees_to_radians, [alpha, beta, gamma])
+
+    G = np.array([
+        [a**2, a*b*np.cos(gamma), a*c*np.cos(beta)],
+        [a*b*np.cos(gamma), b**2, b*c*np.cos(alpha)],
+        [a*c*np.cos(beta), b*c*np.cos(alpha), c**2]
+    ])
+    return G
+
+def metric_tensor_to_unit_cell(G):
+    """Convert metric tensor G back to unit cell parameters."""
+    a_new = np.sqrt(G[0, 0])
+    b_new = np.sqrt(G[1, 1])
+    c_new = np.sqrt(G[2, 2])
+
+    alpha_new = radians_to_degrees(np.arccos(G[1, 2] / (b_new * c_new)))
+    beta_new = radians_to_degrees(np.arccos(G[0, 2] / (a_new * c_new)))
+    gamma_new = radians_to_degrees(np.arccos(G[0, 1] / (a_new * b_new)))
+
+    return a_new, b_new, c_new, alpha_new, beta_new, gamma_new
+
+def apply_strain(a, b, c, alpha, beta, gamma, strain_tensor):
+    """Apply a small strain tensor to the unit cell and return new parameters."""
+    G = unit_cell_to_metric_tensor(a, b, c, alpha, beta, gamma)
+    
+    # Apply the strain: G' = (I + ε)^T * G * (I + ε)
+    I = np.identity(3)
+    strain_tensor = np.array(strain_tensor)  # Ensure it's a NumPy array
+    G_new = np.dot((I + strain_tensor).T, np.dot(G, (I + strain_tensor)))
+    
+    # Convert back to unit cell parameters
+    return metric_tensor_to_unit_cell(G_new)
+
+
+### Diffraction pattern calculation functions
 
 def atomic_form_factor(atom, q):
     factors = {
@@ -215,6 +261,8 @@ def I_hkl(atoms, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_mat
 
     return np.abs(F_total)**2
 
+### Plotting and precomputing functions and values
+
 def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fractions):
     recip_lattice = np.round(np.linalg.inv(atoms.get_cell().T) * (2 * np.pi), decimals=10)
     rotation_matrices = precompute_rotation_matrices(twin_angles)
@@ -227,7 +275,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         intensity = I_hkl(atoms, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        intensity /= (np.max(intensity)/10e1)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        #intensity /= (np.sort(intensity)[-3])  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
         intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
@@ -248,6 +296,9 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fraction
         plt.close()
     return None
 
+### Models with atoms positions
+
+# Tri-Hexagonal
 model_1_positions = {
     "Cs": [(0, 0, 0.750748), (0.25, 0.25, 0.25)],
     "V": [
@@ -266,6 +317,7 @@ model_1_positions = {
     ],
 }
 
+# SOD
 model_2_positions = {
     "Cs": [(0, 0, 0.749239), (0.25, 0.25, 0.25)],
     "V": [
@@ -284,13 +336,28 @@ model_2_positions = {
     ],
 }
 
+## Parameters for input
+
 # Initial undistorted lattice constants (Å)
 a, b, c = 10.971314, 18.9833, 18.51410  
 alpha, beta, gamma = 90, 90, 90
 cell_params = (a, b, c, alpha, beta, gamma)
+
+# Applying strain
+
+# Define a small strain tensor
+strain_tensor = np.array([
+    [0.1, 0.0, 0.0],  # ε_xx, ε_xy, ε_xz
+    [0.0, -0.1, 0.0], # ε_xy, ε_yy, ε_yz
+    [0.0, 0.0, 0.5]       # ε_xz, ε_yz, ε_zz
+])
+
+cell_params = apply_strain(a, b, c, alpha, beta, gamma, strain_tensor)
+
+################################
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (10, 10, 10)
+bulk_dimensions = (10, 10, 5)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
 
 h_range = np.arange(-4, 4, 0.1)
