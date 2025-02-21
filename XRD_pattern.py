@@ -5,6 +5,7 @@ from ase import Atoms
 from ase import io
 from ase.visualize import view
 from ase.geometry import cellpar_to_cell
+from multiprocessing import Pool
 
 ### Unit cell creation and modification 
 
@@ -112,8 +113,9 @@ def degrees_to_radians(angle_deg):
 def radians_to_degrees(angle_rad):
     return np.degrees(angle_rad)
 
-def unit_cell_to_metric_tensor(a, b, c, alpha, beta, gamma):
+def unit_cell_to_metric_tensor(cell_params):
     """Convert unit cell parameters to metric tensor G."""
+    a, b, c, alpha, beta, gamma = cell_params
     alpha, beta, gamma = map(degrees_to_radians, [alpha, beta, gamma])
 
     G = np.array([
@@ -135,17 +137,53 @@ def metric_tensor_to_unit_cell(G):
 
     return a_new, b_new, c_new, alpha_new, beta_new, gamma_new
 
-def apply_strain(a, b, c, alpha, beta, gamma, strain_tensor):
-    """Apply a small strain tensor to the unit cell and return new parameters."""
-    G = unit_cell_to_metric_tensor(a, b, c, alpha, beta, gamma)
+def apply_strain(cell_params, strain_tensors, twin_angles, rotation_matrices):
+    """Applies different rotated strain matrices to the unit cell for each twin variant efficiently."""
+
+    # Ensure strain_tensors is (N_twin, 3, 3)
+    strain_tensors = np.array(strain_tensors)
+    if strain_tensors.ndim == 2:  # If shape is (3, 3), expand to (N_twin, 3, 3)
+        strain_tensors = np.tile(strain_tensors, (len(twin_angles), 1, 1))
     
-    # Apply the strain: G' = (I + ε)^T * G * (I + ε)
-    I = np.identity(3)
-    strain_tensor = np.array(strain_tensor)  # Ensure it's a NumPy array
-    G_new = np.dot((I + strain_tensor).T, np.dot(G, (I + strain_tensor)))
+    # Convert input unit cell parameters to metric tensor
+    G = unit_cell_to_metric_tensor(cell_params)
     
-    # Convert back to unit cell parameters
-    return metric_tensor_to_unit_cell(G_new)
+    # Stack rotation matrices for all twin angles (N_twin, 3, 3)
+    R_matrices = np.array([rotation_matrices[angle] for angle in twin_angles])
+
+    # Rotate the strain tensors: ε' = R ε R^T
+    rotated_strains = np.einsum('nij,njk,nlk->nil', R_matrices, strain_tensors, R_matrices)
+
+    # Apply the strain to G: G' = (I + ε)^T G (I + ε)
+    I_plus_strains = np.identity(3) + rotated_strains
+    G_new = np.einsum('nij,jk,nlk->nil', I_plus_strains, G, I_plus_strains)
+
+    # Convert back to unit cell parameters for each twin variant
+    strain_unit_cell_params = np.array([metric_tensor_to_unit_cell(G_new[i]) for i in range(len(twin_angles))])
+
+    return strain_unit_cell_params  # Returns a NumPy array of shape (N_twin, 6)
+
+def generate_bulk(cell_params, formula, bulk_dimensions, model1, model2 = None):
+    """Helper function to generate a bulk structure for a given strained unit cell."""
+    layer_1 = in_plane_bulk(model1, cell_params, formula, bulk_dimensions)
+    layer_2 = in_plane_bulk(model2, cell_params, formula, bulk_dimensions)
+
+    interlayer_shift = (0.5 * cell_params[0], 0)  # Adjust shift based on a
+    two_layer_cell = create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift)
+    full_bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
+
+    return full_bulk
+
+def compute_twin_bulks_parallel(strained_unit_cells, formula, bulk_dimensions, model1, model2=None):
+    """Computes twin bulk structures in parallel, ensuring output remains a list of ASE Atoms objects."""
+    
+    # Create argument tuples for each bulk
+    args = [(cell_params, formula, bulk_dimensions, model1, model2) for cell_params in strained_unit_cells]
+
+    with Pool() as pool:
+        twin_bulks = pool.starmap(generate_bulk, args)  # Use starmap to unpack arguments
+
+    return twin_bulks  # Return as a list, NOT a NumPy array
 
 
 ### Diffraction pattern calculation functions
@@ -199,20 +237,22 @@ def F_hkl(atoms, G_vectors, q_values, batch_size_atoms=500, batch_size_hkl=5000)
     return F_hkl_values
 
 def precompute_rotation_matrices(angles_deg):
-    """ Precompute the 2D rotation matrices for a list of angles using NumPy operations. """
-    angles_deg = np.array(angles_deg)
-    angles_rad = np.radians(angles_deg)  # Convert all angles to radians at once
+    """Precompute full 3D rotation matrices for each twin angle."""
+    angles_rad = np.radians(angles_deg)
     cos_vals = np.cos(angles_rad)
     sin_vals = np.sin(angles_rad)
 
-    # Stack rotation matrices in a dictionary
+    # Create full 3D rotation matrices (assuming rotation about z-axis)
     return {
-        angle: np.array([[c, -s], [s, c]])
+        angle: np.array([
+            [c, -s, 0],
+            [s,  c, 0],
+            [0,  0, 1]  # No rotation in the z-direction
+        ])
         for angle, c, s in zip(angles_deg, cos_vals, sin_vals)
     }
-
 def rotate_reciprocal_lattice(hkl_array, angle_deg, rotation_matrices):
-    h_k_rot = np.dot(hkl_array[:, :2], rotation_matrices[angle_deg].T)  # Vectorized rotation
+    h_k_rot = np.dot(hkl_array[:, :2], rotation_matrices[angle_deg][:2, :2].T)  # Vectorized rotation
     return np.hstack((h_k_rot, hkl_array[:, 2][:, np.newaxis]))  # Preserve shape
 
 def LP_correction(q_norm, wavelength):
@@ -240,42 +280,57 @@ def LP_correction(q_norm, wavelength):
 def DW_correction(q, B = 0.5):
     return np.float64(np.exp(-B * q**2))
 
-def I_hkl(atoms, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength=1.54, batch_size_hkl=5000):
+def I_hkl(twin_bulks, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength=1.54, batch_size_hkl=20000):
+    """Computes XRD intensities efficiently using batch processing."""
+    
     num_hkl = hkl_array.shape[0]
-    F_total = np.zeros(num_hkl, dtype=np.complex128)
+    F_total = np.zeros(num_hkl, dtype=np.complex128)  # Accumulate structure factors
 
-    for twin_angle, twin_fraction in zip(twin_angles, twin_fractions):
+    for twin_idx, (twin_bulk, twin_angle, twin_fraction) in enumerate(zip(twin_bulks, twin_angles, twin_fractions)):
+        # Rotate reciprocal lattice (uses precomputed matrices, already handled correctly)
         hkl_twin = rotate_reciprocal_lattice(hkl_array, twin_angle, rotation_matrices)
-        G_vectors = np.dot(hkl_twin, r_lattice.T)
-        q_values = np.linalg.norm(G_vectors, axis=1)
+        G_vectors = np.dot(hkl_twin, r_lattice.T)  # Compute scattering vectors
+        q_values = np.linalg.norm(G_vectors, axis=1)  # Compute |G|
 
+        # Batch processing for large HKL grids
         for i in range(0, num_hkl, batch_size_hkl):
-            G_batch = G_vectors[i:i + batch_size_hkl]
-            q_batch = q_values[i:i + batch_size_hkl]
+            G_batch = G_vectors[i : i + batch_size_hkl]
+            q_batch = q_values[i : i + batch_size_hkl]
 
+            # Compute structure factor F_hkl for this twin variant
             F_twin = (
-                F_hkl(atoms, G_batch, q_batch) * twin_fraction *
+                F_hkl(twin_bulk, G_batch, q_batch) * twin_fraction *
                 DW_correction(q_batch) * LP_correction(q_batch, wavelength)
             )
-            F_total[i:i + batch_size_hkl] += F_twin
 
-    return np.abs(F_total)**2
+            # Accumulate contributions efficiently
+            np.add.at(F_total, np.arange(i, min(i + batch_size_hkl, num_hkl)), F_twin)
+
+    return np.abs(F_total)**2  # Return intensity (|F|^2)
 
 ### Plotting and precomputing functions and values
 
-def plot_XRD_pattern(h_range, k_range, l_cuts, atoms, twin_angles, twin_fractions):
-    recip_lattice = np.round(np.linalg.inv(atoms.get_cell().T) * (2 * np.pi), decimals=10)
+def plot_XRD_pattern(h_range, k_range, l_cuts, twin_angles, twin_fractions, cell_params, strain_tensor = None):
     rotation_matrices = precompute_rotation_matrices(twin_angles)
     
+    # Compute strained unit cells (vectorized)
+    strained_unit_cells = apply_strain(cell_params, strain_tensor, twin_angles, rotation_matrices)
+
+    # Compute twin bulks in parallel
+    twin_bulks = compute_twin_bulks_parallel(strained_unit_cells, formula, bulk_dimensions, model_1_positions, model_2_positions)
+
+    # Compute reciprocal lattice (using the first bulk, as they share the basis)
+    recip_lattice = np.round(np.linalg.inv(twin_bulks[0].get_cell().T) * (2 * np.pi), decimals=10)
+
     h_grid, k_grid = np.meshgrid(h_range, k_range, indexing='ij')  # Ensure correct indexing
     hkl_array = np.column_stack((h_grid.ravel(), k_grid.ravel()))  # Flatten h and k values
 
     for l in l_cuts:
         hkl_values = np.hstack((hkl_array, np.full((hkl_array.shape[0], 1), l)))  # Add l column
-        intensity = I_hkl(atoms, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
+        intensity = I_hkl(twin_bulks, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        #intensity /= (np.sort(intensity)[-3])  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        intensity /= (np.max(intensity)/10e1)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
         intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
@@ -347,12 +402,10 @@ cell_params = (a, b, c, alpha, beta, gamma)
 
 # Define a small strain tensor
 strain_tensor = np.array([
-    [0.1, 0.0, 0.0],  # ε_xx, ε_xy, ε_xz
-    [0.0, -0.1, 0.0], # ε_xy, ε_yy, ε_yz
-    [0.0, 0.0, 0.5]       # ε_xz, ε_yz, ε_zz
+    [-0.2, 0.01, 0.0],  # ε_xx, ε_xy, ε_xz
+    [0.01, -0.01, 0.0], # ε_xy, ε_yy, ε_yz
+    [0.0, 0.0, 0.0]       # ε_xz, ε_yz, ε_zz
 ])
-
-cell_params = apply_strain(a, b, c, alpha, beta, gamma, strain_tensor)
 
 ################################
 formula = "Cs2V4Sb6"
@@ -374,14 +427,5 @@ l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.5)]
 #bulk_original = original_structure.repeat(bulk_dimensions)
 #view(bulk_original)
 
-layer_1 = in_plane_bulk(model_1_positions, cell_params, formula, bulk_dimensions)
-layer_2 = in_plane_bulk(model_1_positions, cell_params, formula, bulk_dimensions)
-
-interlayer_shift = (0.5 * a, 0)
-two_layer_cell = create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift)
-four_layer_cell = create_2x2x4_unit_cell(layer_1, layer_2, layer_1, layer_1, [interlayer_shift]*3)
-
-bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
-#view(bulk)
-plot_XRD_pattern(h_range, k_range, l_cuts, bulk, twin_angles, twin_populations)
+plot_XRD_pattern(h_range, k_range, l_cuts, twin_angles, twin_populations, cell_params, strain_tensor)
 
