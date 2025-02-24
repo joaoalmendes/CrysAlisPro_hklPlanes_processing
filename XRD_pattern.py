@@ -166,10 +166,12 @@ def apply_strain(cell_params, strain_tensors, twin_angles, rotation_matrices):
 def generate_bulk(cell_params, formula, bulk_dimensions, model1, model2 = None):
     """Helper function to generate a bulk structure for a given strained unit cell."""
     layer_1 = in_plane_bulk(model1, cell_params, formula, bulk_dimensions)
-    layer_2 = in_plane_bulk(model1, cell_params, formula, bulk_dimensions)
+    layer_2 = in_plane_bulk(model2, cell_params, formula, bulk_dimensions)
 
-    interlayer_shift = (0.5 * cell_params[0], 0.0 * cell_params[1])  # Adjust shift based on a
+    interlayer_shift = (0.0 * cell_params[0], 0.5 * cell_params[1])  # Adjust shift based on a
+    #interlayer_shift = [interlayer_shift]*3
     two_layer_cell = create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift)
+    #four_layer_cell = create_2x2x4_unit_cell(layer_1, layer_2, layer_2, layer_2, interlayer_shift)
     full_bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
 
     return full_bulk
@@ -340,7 +342,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, twin_angles, twin_fractions, cell
         intensity = I_hkl(twin_bulks, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        intensity /= (np.max(intensity)/10e3)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        intensity /= (np.max(intensity)/10e1)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
         intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
@@ -365,38 +367,73 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, twin_angles, twin_fractions, cell
 
 # Tri-Hexagonal
 model_1_positions = {
-    "Cs": [(0, 0, 0.750748), (0.25, 0.25, 0.25)],
+    "Cs": [(0, 0, 0.750748), 
+           (0, 0, 0.249252), 
+           (0.25, 0.25, 0.25), 
+           (0.75, 0.75, 0.75)],
     "V": [
         (0.3785912, 0.126306, 0),
-        (0.6241512, 0.376246, 0),
+        (0.6214088, 0.873694, 0),
+        (0.6214088, 0.126306, 0),
+        (0.3785912, 0.873694, 0),
         (0.24752, 0, 0),
+        (0.75248, 0, 0),
         (0, 0.7474110, 0),
+        (0, 0.252589, 0),
     ],
     "Sb": [
         (0, 0.332945, 0.6215610),
+        (0, 0.667055, 0.378439),
+        (0, 0.332945, 0.378439),
+        (0, 0.667055, 0.6215610),
         (0.250563, 0.083484, 0.121629),
-        (0, 0.833395, 0.6233810),
+        (0.749437, 0.916516, 0.878371),
+        (0.250563, 0.916516, 0.878371),
+        (0.749437, 0.083484, 0.121629), 
+        (0.749437, 0.916516, 0.121629),
+        (0.250563, 0.083484, 0.878371),
+        (0.749437, 0.083484, 0.878371), 
+        (0.250563, 0.916516, 0.121629),
         (0, 0, 0.5),
         (0.25, 0.25, 0),
+        (0.75, 0.25, 0),
         (0, 0, 0),
     ],
 }
 
 # SOD
 model_2_positions = {
-    "Cs": [(0, 0, 0.749239), (0.25, 0.25, 0.25)],
+    "Cs": [(0, 0, 0.749239), 
+           (0, 0, 0.250761),
+           (0.25, 0.25, 0.25),
+           (0.75, 0.75, 0.75),
+           ],
     "V": [
         (0.3715413, 0.123737, 0),
-        (0.6258714, 0.373747, 0),
+        (0.6284587, 0.876263, 0),
+        (0.6284587, 0.123737, 0),
+        (0.3715413, 0.876263, 0),
         (0.25252, 0, 0),
+        (0.74748, 0, 0),
         (0, 0.7525912, 0),
+        (0, 0.2474088, 0),
     ],
     "Sb": [
         (0, 0.333695, 0.6225110),
-        (0.249444, 0.083175, 0.122479),
-        (0, 0.833275, 0.620711),
+        (0, 0.666305, 0.377489),
+        (0, 0.333695, 0.377489),
+        (0, 0.666305, 0.6225110),
+        (0.249444, 0.083175, 0.122479), 
+        (0.750556, 0.916825, 0.877521), 
+        (0.750556, 0.916825, 0.122479),
+        (0.249444, 0.083175, 0.877521), 
+        (0.750556, 0.083175, 0.877521),
+        (0.249444, 0.916825, 0.122479),
+        (0.249444, 0.916825, 0.877521),
+        (0.750556, 0.083175, 0.122479), 
         (0, 0, 0.5),
         (0.25, 0.25, 0),
+        (0.75, 0.25, 0),
         (0, 0, 0),
     ],
 }
@@ -412,13 +449,13 @@ cell_params = (a, b, c, alpha, beta, gamma)
 
 # Define a small strain tensor
 strain_tensor = np.array([
-    [0.00, 0.00, 0.0],  # ε_xx, ε_xy, ε_xz
-    [0.00, 0.00, 0.0], # ε_xy, ε_yy, ε_yz
-    [0.0, 0.0, 0.0]       # ε_xz, ε_yz, ε_zz
+    [0.0, 0.0, 0.0],  # ε_xx, ε_xy, ε_xz
+    [0.0, 0.0, 0.00], # ε_yx, ε_yy, ε_yz
+    [0.00, 0.00, 0.0]       # ε_xz, ε_yz, ε_zz
 ])
 
 ################################
-formula = "Cs2V4Sb6"
+formula = "Cs4V8Sb16"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
 bulk_dimensions = (10, 10, 10)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
