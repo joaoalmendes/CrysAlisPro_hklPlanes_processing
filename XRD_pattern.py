@@ -166,9 +166,9 @@ def apply_strain(cell_params, strain_tensors, twin_angles, rotation_matrices):
 def generate_bulk(cell_params, formula, bulk_dimensions, model1, model2 = None):
     """Helper function to generate a bulk structure for a given strained unit cell."""
     layer_1 = in_plane_bulk(model1, cell_params, formula, bulk_dimensions)
-    layer_2 = in_plane_bulk(model2, cell_params, formula, bulk_dimensions)
+    layer_2 = in_plane_bulk(model1, cell_params, formula, bulk_dimensions)
 
-    interlayer_shift = (0.5 * cell_params[0], 0)  # Adjust shift based on a
+    interlayer_shift = (0.5 * cell_params[0], 0.0 * cell_params[1])  # Adjust shift based on a
     two_layer_cell = create_2x2x2_unit_cell(layer_1, layer_2, interlayer_shift)
     full_bulk = build_full_bulk(two_layer_cell, bulk_dimensions)
 
@@ -280,6 +280,14 @@ def LP_correction(q_norm, wavelength):
 def DW_correction(q, B = 0.5):
     return np.float64(np.exp(-B * q**2))
 
+def compute_F_hkl_batch(args):
+    """Wrapper function to compute F_hkl for a batch."""
+    twin_bulk, G_batch, q_batch, twin_fraction, wavelength = args
+    return (
+        F_hkl(twin_bulk, G_batch, q_batch) * twin_fraction #*
+        #DW_correction(q_batch) * LP_correction(q_batch, wavelength)
+    )
+
 def I_hkl(twin_bulks, hkl_array, r_lattice, twin_angles, twin_fractions, rotation_matrices, wavelength=1.54, batch_size_hkl=20000):
     """Computes XRD intensities efficiently using batch processing."""
     
@@ -292,19 +300,21 @@ def I_hkl(twin_bulks, hkl_array, r_lattice, twin_angles, twin_fractions, rotatio
         G_vectors = np.dot(hkl_twin, r_lattice.T)  # Compute scattering vectors
         q_values = np.linalg.norm(G_vectors, axis=1)  # Compute |G|
 
-        # Batch processing for large HKL grids
-        for i in range(0, num_hkl, batch_size_hkl):
-            G_batch = G_vectors[i : i + batch_size_hkl]
-            q_batch = q_values[i : i + batch_size_hkl]
+        # Prepare batch arguments
+        batch_args = [
+            (twin_bulk, G_vectors[i:i + batch_size_hkl], q_values[i:i + batch_size_hkl], twin_fraction, wavelength)
+            for i in range(0, num_hkl, batch_size_hkl)
+        ]
 
-            # Compute structure factor F_hkl for this twin variant
-            F_twin = (
-                F_hkl(twin_bulk, G_batch, q_batch) * twin_fraction *
-                DW_correction(q_batch) * LP_correction(q_batch, wavelength)
-            )
+        # Compute batches in parallel
+        with Pool() as pool:
+            F_batches = pool.map(compute_F_hkl_batch, batch_args)
 
-            # Accumulate contributions efficiently
-            np.add.at(F_total, np.arange(i, min(i + batch_size_hkl, num_hkl)), F_twin)
+        # Accumulate results
+        for i, F_batch in enumerate(F_batches):
+            start_idx = i * batch_size_hkl
+            end_idx = min(start_idx + batch_size_hkl, num_hkl)
+            np.add.at(F_total, np.arange(start_idx, end_idx), F_batch)
 
     return np.abs(F_total)**2  # Return intensity (|F|^2)
 
@@ -330,7 +340,7 @@ def plot_XRD_pattern(h_range, k_range, l_cuts, twin_angles, twin_fractions, cell
         intensity = I_hkl(twin_bulks, hkl_values, recip_lattice, twin_angles, twin_fractions, rotation_matrices)
         intensity = intensity.reshape(len(h_range), len(k_range))  # Reshape back to mesh
 
-        intensity /= (np.max(intensity)/10e1)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
+        intensity /= (np.max(intensity)/10e3)  # Normalize; the CDw peaks intensities are 10^4 to 10^6 times smaller than the Braggs
         intensity = gaussian_filter(intensity, sigma=0.5)  # Smooth
         intensity = np.log1p(intensity)  # Log scaling
 
@@ -402,20 +412,21 @@ cell_params = (a, b, c, alpha, beta, gamma)
 
 # Define a small strain tensor
 strain_tensor = np.array([
-    [-0.2, 0.01, 0.0],  # ε_xx, ε_xy, ε_xz
-    [0.01, -0.01, 0.0], # ε_xy, ε_yy, ε_yz
+    [0.00, 0.00, 0.0],  # ε_xx, ε_xy, ε_xz
+    [0.00, 0.00, 0.0], # ε_xy, ε_yy, ε_yz
     [0.0, 0.0, 0.0]       # ε_xz, ε_yz, ε_zz
 ])
 
 ################################
 formula = "Cs2V4Sb6"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
-bulk_dimensions = (10, 10, 5)
+bulk_dimensions = (10, 10, 10)
 twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
 
-h_range = np.arange(-4, 4, 0.1)
-k_range = np.arange(-4, 4, 0.1)
-l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.5)]
+h_range = np.arange(-3, 3, 0.1)
+k_range = np.arange(-3, 3, 0.1)
+
+l_cuts = [np.float64(0), np.float64(0.25), np.float64(0.50)]
 
 #input_positions = model_positions_to_ASE_positions(model_2_positions)
 #unit_cell_ASE = unit_cell(cell_params, formula, input_positions)
