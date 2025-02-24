@@ -451,14 +451,14 @@ cell_params = (a, b, c, alpha, beta, gamma)
 strain_tensor = np.array([
     [0.0, 0.0, 0.0],  # ε_xx, ε_xy, ε_xz
     [0.0, 0.0, 0.00], # ε_yx, ε_yy, ε_yz
-    [0.00, 0.00, 0.0]       # ε_xz, ε_yz, ε_zz
+    [0.0, 0.00, 0.0]       # ε_xz, ε_yz, ε_zz
 ])
 
 ################################
 formula = "Cs4V8Sb16"
 atom_types = ['Cs', 'V', 'Sb']  # Atom types for each position
 bulk_dimensions = (10, 10, 10)
-twin_angles, twin_populations = [0, 120, 240], [np.float64(0.33), np.float64(0.33), np.float64(0.33)]
+twin_angles, twin_populations = [0, 120, 240], [np.float64(0.0), np.float64(0.33), np.float64(0.33)]
 
 h_range = np.arange(-3, 3, 0.1)
 k_range = np.arange(-3, 3, 0.1)
