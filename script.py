@@ -368,6 +368,26 @@ def check_existing_data(local_data_path: str, Planes: list[str], merged: bool) -
 
     return True  # Continue processing
 
+def find_correct_data_path(base_path):
+    """
+    Determines the correct path for retrieving .img files based on the directory structure.
+    
+    Parameters:
+    base_path (str): Path to the temperature/voltage folder in the cloud storage.
+    
+    Returns:
+    str: Correct directory path containing the .img files, or None if not found.
+    """
+    fulltth_extended_path = os.path.join(base_path, "fulltth_extended", "esp", "unwarp")
+    fulltth_path = os.path.join(base_path, "fulltth", "merged", "unwarp")
+    
+    if os.path.exists(fulltth_extended_path):
+        return fulltth_extended_path
+    elif os.path.exists(fulltth_path):
+        return fulltth_path
+    else:
+        return None
+
 def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES: list[str], VOLTAGES: dict[str, list[str]]) -> None:
     """
     Main function that checks for existing data, processes new data if needed, and organizes files.
@@ -403,21 +423,22 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                     plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
                 continue
 
-            # Now access the base_dir only if necessary
-            remote_voltage_path = os.path.join(base_dir, temperature, voltage, "data")
-            if not os.path.exists(remote_voltage_path):
-                log_error(f"Remote data folder not found in base directory: {temperature}/{voltage}")
+            # Determine the correct remote path dynamically
+            remote_base_path = os.path.join(base_dir, temperature, voltage)
+            remote_data_path = find_correct_data_path(remote_base_path)
+            if remote_data_path is None:
+                log_error(f"No valid data folder found in base directory: {remote_data_path}")
                 continue
 
             # Process and copy required files only if missing or being replaced
             found_files = 0
             print(f"{voltage}")
 
-            for file_name in os.listdir(remote_voltage_path):
+            for file_name in os.listdir(remote_data_path):
                 plane = extract_plane_from_filename(file_name)
                 if plane and plane in Planes:
                     found_files += 1
-                    src_file = os.path.join(remote_voltage_path, file_name)
+                    src_file = os.path.join(remote_data_path, file_name)
                     dest_file = os.path.join(local_data_path, file_name)
 
                     os.makedirs(os.path.dirname(dest_file), exist_ok=True)
@@ -429,7 +450,7 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                         os.remove(identifier_file)
 
             if found_files == 0:
-                log_error(f"No matching files found for planes in {temperature}/{voltage} at {remote_voltage_path}")
+                log_error(f"No matching files found for planes in {temperature}/{voltage} at {remote_data_path}")
 
             # Collect and process img files after copying
             img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
