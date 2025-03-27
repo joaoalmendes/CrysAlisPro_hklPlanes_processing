@@ -15,6 +15,7 @@ from matplotlib.patches import Circle
 import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
+import random
 
 # Log peak data to the log.data file
 def log_data(message: str, info: str, log_file="log.data") -> None:
@@ -116,8 +117,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
     # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
     #visualize(data[0])
 
-    log_data("Running for Intensity(l) plots.", "\n")
-    log_data(f"Temperature: {temperature}, Voltage: {voltage}", "\n")
+    log_data(f"Temperature: {temperature}, Voltage: {voltage}", "")
 
     def initial_parameters(plane: str) -> list[tuple, tuple]:
         # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
@@ -160,7 +160,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         filtered_avg = np.mean(data) if data.size > 0 else 0
         return data, filtered_avg
     
-    def find_peaks(data: list[np.ndarray], height=None, min_prominence=20, min_distance=5) -> tuple[np.ndarray, int, float]:
+    def find_peaks(data: list[np.ndarray], height=None, min_prominence=18, min_distance=5) -> tuple[np.ndarray, int, float]:
         # Ensure data is a numpy array
         data = np.asarray(data)
 
@@ -199,20 +199,22 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         for par in par_list:
             X0, X1, Y0, Y1 = par
             X_start, X_end = calculate_columns(int((X0+X1)/2))
-            roi_data = plane_data[Y0-Y_width:Y1+Y_width, X_start:X_end]
+            Y0, Y1 = Y0-Y_width, Y1+Y_width
+            roi_data = plane_data[Y0:Y1, X_start:X_end]
             row_means = np.mean(roi_data, axis=1)   # Calculate the mean across each row for the given the column values
             
             # Get the peak's data and save them in the log.data file
-            find_peaks_data = find_peaks(row_means)
-            row_means_filtered = filter_large_values(row_means, multiplier=30)[0]
-            row_means_filtered[row_means_filtered < noise_cap] = 0.0
-            size = np.size(row_means_filtered)
+            plot_data = filter_large_values(row_means, multiplier=30)[0]
+            peaks_pos, N_peaks, avg_peak_I = find_peaks(plot_data)
+            #data[data < noise_cap] = 0.0
+
+            size = np.size(plot_data)
             y_0, y_1 = Y0 - N_pixel/2, Y1 - N_pixel/2 # rescale the origin for the peaks 
 
-            log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in find_peaks_data[0]]}, Average peak intensity: {round(find_peaks_data[2],2)}")
+            log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in peaks_pos]}, Average peak intensity: {round(avg_peak_I,2)}")
 
             l_plot = ratio * np.linspace(y_0, y_1, size)
-            I_plot = row_means_filtered
+            I_plot = plot_data
 
             planes_plot_data[plane_idx].append((l_plot, I_plot))
 
@@ -240,6 +242,9 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
     save_path: str, optional
         File path to save the figure if save_fig is True.
     """
+
+    log_data(f"Plot Mode: {mode}", "")
+
     if voltages is None:
         voltages = list(plot_dict.keys())  # Use all available voltages
     
@@ -252,13 +257,12 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
             for voltage in voltages:
                 fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
                 plane_data = plot_dict[voltage][plane_idx]
-                
                 for pos in range(2):
                     L_plot, I_plot = plane_data[pos]
                     axes[pos].plot(L_plot, I_plot, label=f'Position {pos+1}', color='b' if pos == 0 else 'r')
                     axes[pos].set_ylabel("Intensity")
                     axes[pos].legend()
-                    axes[pos].set_title(f"V={voltage} - HKL Plane {plane_idx+1} - Position {pos+1}")
+                    axes[pos].set_title(f"V={voltage} - HKL Plane {plane_idx+1} - Peak {pos+1}")
                 
                 axes[-1].set_xlabel("L")
                 plt.tight_layout()
@@ -279,7 +283,7 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
                     axes[pos].plot(L_plot, I_plot, label=f'V={voltage}', color=colors[v_idx])
                     axes[pos].legend()
                     axes[pos].set_ylabel("Intensity")
-                    axes[pos].set_title(f"Overlay - HKL Plane {plane_idx+1} - Position {pos+1}")
+                    axes[pos].set_title(f"Overlay - HKL Plane {plane_idx+1} - Peak {pos+1}")
                     
             axes[-1].set_xlabel("L")
             plt.tight_layout()
@@ -309,7 +313,7 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
                 
                 ax.set_xlabel("L")
                 ax.set_ylabel("Intensity")
-                ax.set_title(f"Stacked - HKL Plane {plane_idx+1} - Position {pos+1}")
+                ax.set_title(f"Stacked - HKL Plane {plane_idx+1} - Peak {pos+1}")
                 plt.tight_layout()
                 
                 if save_fig:
@@ -326,7 +330,7 @@ def extract_temp_voltage(path: str) -> tuple[str, str]:
     voltage = parts[-2]
     return temperature, voltage
 
-def generate_pattern(plane: str, merged=False) -> None:
+def generate_pattern(plane: str, merged) -> None:
     """
     Generates the expected .img file name based on the plane input.
     Uses the exact function format you specified.
@@ -337,7 +341,7 @@ def generate_pattern(plane: str, merged=False) -> None:
         return f"{prefix}{plane_content}.img"
     return None
 
-def check_existing_data(local_data_path: str, Planes: list[str], merged: bool) -> bool:
+def check_existing_data(local_data_path: str, Planes: list[str]) -> bool:
     """
     Checks if all requested plane .img files exist in the local data folder.
     If they do, prompts the user to decide whether to replace them.
@@ -354,6 +358,11 @@ def check_existing_data(local_data_path: str, Planes: list[str], merged: bool) -
         return True  # Proceed if local data folder doesn't exist
 
     existing_files = set(os.listdir(local_data_path))
+
+    # Auto-detect merged flag from an existing file
+    sample_file = random.choice(list(existing_files))
+    merged = "merged" in sample_file.lower()
+
     expected_files = {generate_pattern(plane, merged) for plane in Planes}
 
     missing_files = expected_files - existing_files  # Files that are missing
@@ -412,7 +421,7 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             local_data_path = os.path.join(voltage_path, "data")
 
             # Check if gathering is needed before accessing the remote base_dir
-            gather_needed = check_existing_data(local_data_path, Planes, merged=True)
+            gather_needed = check_existing_data(local_data_path, Planes)
             if not gather_needed:
                 print(f"Skipping data gathering for {temperature}, {voltage}.")
                 # Still process existing files even if no gathering is needed
@@ -424,7 +433,7 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                 continue
 
             # Determine the correct remote path dynamically
-            remote_base_path = os.path.join(base_dir, temperature, voltage)
+            remote_base_path = os.path.join(base_dir, temperature, f"V{voltage[:-1]}_-{voltage[:-1]}")
             remote_data_path = find_correct_data_path(remote_base_path)
             if remote_data_path is None:
                 log_error(f"No valid data folder found in base directory: {remote_data_path}")
@@ -439,18 +448,21 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                 if plane and plane in Planes:
                     found_files += 1
                     src_file = os.path.join(remote_data_path, file_name)
-                    dest_file = os.path.join(local_data_path, file_name)
 
-                    os.makedirs(os.path.dirname(dest_file), exist_ok=True)
-                    shutil.copy(src_file, dest_file)
+                    if os.path.exists(src_file) == False:
+                        log_error(f"Plane {plane} not found in {temperature}/{voltage} at {remote_data_path}")
+                    else:
+                        dest_file = os.path.join(local_data_path, file_name)
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.copy(src_file, dest_file)
 
-                    # Handle `.Identifier` files
-                    identifier_file = os.path.join(local_data_path, f"{os.path.splitext(file_name)[0]}.Identifier")
-                    if os.path.exists(identifier_file):
-                        os.remove(identifier_file)
+                        # Handle `.Identifier` files
+                        identifier_file = os.path.join(local_data_path, f"{os.path.splitext(file_name)[0]}.Identifier")
+                        if os.path.exists(identifier_file):
+                            os.remove(identifier_file)
 
-            if found_files == 0:
-                log_error(f"No matching files found for planes in {temperature}/{voltage} at {remote_data_path}")
+            if found_files != len(Planes):
+                print(f"No matching files found for planes in {temperature}/{voltage} at {remote_data_path}")
 
             # Collect and process img files after copying
             img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
