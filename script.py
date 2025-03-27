@@ -75,58 +75,7 @@ def extract_plane_from_filename(filename: str) -> str | None:
     print(f"Warning: Could not determine plane for filename: {filename}")
     return None
 
-# Reorders the planes data gathering order with our input plane order so there are no miss placements while robustly handling missing planes during reordering
-def reorder_data(img_files: list[str], planes: list[str]) -> tuple[list[np.ndarray], list[bool], list[float]]:
-    file_planes = []
-    is_merged = []
-    l_list = []
-
-    for f in img_files:
-        plane = extract_plane_from_filename(os.path.basename(f))
-        l = plane.strip("()").split(",")[2]
-        if plane is None:
-            print(f"Warning: Could not determine plane for file {f}")
-        file_planes.append(plane)
-        l_list.append(l)  # Store the value of l for later use in the visualization step
-        is_merged.append("merged" in os.path.basename(f))
-
-    if None in file_planes:
-        log_error(f"Some files do not have recognizable plane information in the dataset.")
-        return [], []  # Gracefully return empty lists to avoid halting
-
-    ordered_data = []
-    ordered_is_merged = []
-    ordered_l_list = []
-    for plane in planes:
-        try:
-            index = file_planes.index(plane)  # Find the index of the plane in file_planes
-            ordered_data.append(fabio.open(img_files[index]).data)
-            ordered_l_list.append(l_list[index])
-            ordered_is_merged.append(is_merged[index])
-        except ValueError:
-            continue  # Skip missing planes and move on
-    return ordered_data, ordered_is_merged, ordered_l_list
-
 def process_img_files(img_files: list[str], output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
-
-    # Reorder data to align with planes
-    data, is_merged, l_values = reorder_data(img_files, Planes)
-    
-    #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
-
-    # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
-    #visualize(data[0])
-
-    log_data(f"Temperature: {temperature}, Voltage: {voltage}", "")
-
-    def initial_parameters(plane: str) -> list[tuple, tuple]:
-        # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
-        params = {
-            "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)],
-            "(3,k,l)": [(619, 739, 738, 801), (739, 863, 738, 801)],
-        }
-        return params.get(plane, [])
-    
     # Defines a starting and ending collumn for the exctraction of the peak intensity data
     def calculate_columns(center, width = 10):
         start = center - width // 2
@@ -186,7 +135,30 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         N_peaks = len(filtered_peaks) 
         return filtered_peaks, N_peaks, avg_peak_I
 
-    planes_plot_data = [[]] * len(Planes)
+    def initial_parameters(plane: str) -> list[tuple, tuple]:
+            # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
+            params = {
+                "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)],
+                "(3,k,l)": [(619, 739, 738, 801), (739, 863, 738, 801)],
+            }
+            return params.get(plane, [])
+
+    # Reorder data to align with planes
+    # Map extracted plane names to corresponding files
+    plane_to_file = {extract_plane_from_filename(os.path.basename(f)): f for f in img_files}
+    # Sort files according to the order in PLANES
+    sorted_files = [plane_to_file[plane] for plane in Planes if plane in plane_to_file]
+    # Read the files with Fabio and pass them in np.array format to be precessed
+    data = [fabio.open(file).data for file in sorted_files]
+
+    #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
+
+    # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
+    #visualize(data[0])
+
+    log_data(f"Temperature: {temperature}, Voltage: {voltage}", "")
+
+    planes_plot_data = [[] for _ in range(len(Planes))]  # Ensure separate lists for each plane
 
     # Run the data processing for each plane
     Y_width = 5
@@ -194,7 +166,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
     plane_idx = 0
     for plane, plane_data in zip(Planes, data):
         par_list = initial_parameters(plane)
-        log_data(f"Plane: {plane}", "\n")
+        log_data(f"Plane: {plane}", "")
         peak_index = 0
         for par in par_list:
             X0, X1, Y0, Y1 = par
@@ -223,7 +195,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
 
     return planes_plot_data
 
-def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, save_path='plot.png'):
+def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=False, save_path='plot.png'):
     """
     Generates plots for intensity vs. L values from given voltage-dependent data.
 
@@ -248,7 +220,7 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
     if voltages is None:
         voltages = list(plot_dict.keys())  # Use all available voltages
     
-    num_planes = len(next(iter(plot_dict.values())))  # Determine number of HKL planes
+    num_planes = len(Planes)  # Determine number of HKL planes
     colors = plt.cm.viridis(np.linspace(0, 1, len(voltages)))  # Color gradient for voltages
     
     for plane_idx in range(num_planes):
@@ -259,39 +231,42 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
                 plane_data = plot_dict[voltage][plane_idx]
                 for pos in range(2):
                     L_plot, I_plot = plane_data[pos]
-                    axes[pos].plot(L_plot, I_plot, label=f'Position {pos+1}', color='b' if pos == 0 else 'r')
+                    axes[pos].plot(L_plot, I_plot, label=f'Peak {pos+1}', color='b' if pos == 0 else 'r')
                     axes[pos].set_ylabel("Intensity")
                     axes[pos].legend()
-                    axes[pos].set_title(f"V={voltage} - HKL Plane {plane_idx+1} - Peak {pos+1}")
+                    axes[pos].set_title(f"V={voltage} - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                 
                 axes[-1].set_xlabel("L")
                 plt.tight_layout()
                 
                 if save_fig:
                     plt.savefig(f"{save_path}_plane{plane_idx+1}_V{voltage}.png", dpi=300)
+                    plt.close()
                 else:
                     plt.show()
+                    plt.close()
         
         elif mode == 'overlay':
             fig, axes = plt.subplots(2, 1, figsize=(8, 6), sharex=True)
             
             for v_idx, voltage in enumerate(voltages):
                 plane_data = plot_dict[voltage][plane_idx]
-                
                 for pos in range(2):
                     L_plot, I_plot = plane_data[pos]
                     axes[pos].plot(L_plot, I_plot, label=f'V={voltage}', color=colors[v_idx])
                     axes[pos].legend()
                     axes[pos].set_ylabel("Intensity")
-                    axes[pos].set_title(f"Overlay - HKL Plane {plane_idx+1} - Peak {pos+1}")
+                    axes[pos].set_title(f"Overlay - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                     
             axes[-1].set_xlabel("L")
             plt.tight_layout()
             
             if save_fig:
                 plt.savefig(f"{save_path}_plane{plane_idx+1}_overlay.png", dpi=300)
+                plt.close()
             else:
                 plt.show()
+                plt.close()
         
         elif mode == 'stacked':
             for pos in range(2):
@@ -313,13 +288,15 @@ def plots_function(plot_dict, voltages=None, mode='stacked', save_fig=False, sav
                 
                 ax.set_xlabel("L")
                 ax.set_ylabel("Intensity")
-                ax.set_title(f"Stacked - HKL Plane {plane_idx+1} - Peak {pos+1}")
+                ax.set_title(f"Stacked - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                 plt.tight_layout()
                 
                 if save_fig:
                     plt.savefig(f"{save_path}_plane{plane_idx+1}_stacked_pos{pos+1}.png", dpi=300)
+                    plt.close()
                 else:
                     plt.show()
+                    plt.close()
 
 def extract_temp_voltage(path: str) -> tuple[str, str]:
     # Assumes structure: <base_dir>/<temperature>/<voltage>/data
@@ -470,8 +447,7 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             if img_files:
                 print('Processing new and existing files')
                 plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
-        plots_function(plot_dic)
-
+        plots_function(plot_dic, Planes)
 
 
 # Inputs and code execution order
