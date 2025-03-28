@@ -1,14 +1,12 @@
 import fabio    # to read the .img files
 import os
-import re
-import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
-from script import log_data, log_error
+from matplotlib.ticker import FuncFormatter
 
 # It assumes -> True: Right; False: Left; None: Non detected
 def detect_chirality(peak_intensities: list[float]) -> bool:
@@ -29,7 +27,7 @@ def detect_chirality(peak_intensities: list[float]) -> bool:
     else:
         return None
 
-def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int, tuple], circle_size: tuple, pixel_data: np.array, title_text: str, temperature: str, voltage: str, M: bool, Plane: str, local_Dir: str) -> None:
+def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[int, tuple], circle_size: tuple, pixel_data: np.array, title_text: str, temperature: str, voltage: str, Merged: bool, Plane: str, local_Dir: str, ratio: float, N_pixel: int) -> None:
     """
     Function to plot HK-plane data with peaks annotated, using Matplotlib.
     
@@ -45,13 +43,13 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
     """
     
     # Subset the pixel data based on the specified plot range
-    subset_data = pixel_data[plot_range[0]:plot_range[1], plot_range[2]:plot_range[3]]
+    subset_data = pixel_data[plot_range[2]:plot_range[3], plot_range[0]:plot_range[1]]
     
     # Create the figure and axis with the specified size
     fig, ax = plt.subplots(figsize=(7,7))
     ax.set_title(f"({temperature}, {voltage}); {title_text}")
     
-    if M == True:
+    if Merged == True:
         max_cap = 100
     else:
         max_cap = 50
@@ -75,9 +73,13 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
         ax.add_patch(circle)
     
+    # Apply the formatter to X and Y axis (fixing missing 'ratio' issue)
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))
+
     # Set labels and show the plot
-    ax.set_xlabel("Pixel X")
-    ax.set_ylabel("Pixel Y")
+    ax.set_xlabel("H")
+    ax.set_ylabel("K")
     plt.tight_layout()
     os.chdir(f"{local_Dir}/Data/{temperature}/{voltage}/")
     # Save the figure with specified dpi (higher dpi = higher resolution)
@@ -86,7 +88,7 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
     os.chdir(local_Dir)
     #plt.show()
 
-def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir):
+def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel):
     # For benchmarking the difference between merged and non-merged data
 
     merged_I_avg = []
@@ -108,7 +110,7 @@ def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir)
         index += 1
 
     chirality_list = []
-    for plane, plane_data, merged in zip(Planes, data, is_merged):
+    for plane, plane_data in zip(Planes, data):
         index = 0
         peaks_intensities = {}
         for inputs in PeaksPositions_RangeForCalc.values():
@@ -116,24 +118,19 @@ def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir)
             data_intensity = np.mean(peak_data)
             peaks_intensities[index] = round(float(data_intensity),2)
             index += 1
-        
-        background_I = round(float(np.mean(plane_data[990:1000, 840:850])),2)   # See how good this values actually are, they are taken from visualization
-        if merged == True:
-            merged_I_avg.append(background_I)
-        else:
-            non_merged_I_avg.append(background_I)
-
-        log_data(f"Temperature = {temperature} and Voltage = {voltage}", "")
-        log_data(f"Plane {plane} (is merged = {merged}; Background intensity = {background_I}):", f"Peaks intensities: {peaks_intensities}")
 
         peaks_intensities_list = list(peaks_intensities.values())
         chirality = detect_chirality(peaks_intensities_list)
         chirality_list.append(chirality)
 
         title = str(plane) + "; Chirality: " + str(chirality)
-        plot_hk_plane(hk_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage, merged, plane, local_dir)
+        plot_hk_plane(hk_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage, is_merged, plane, local_dir, ratio, N_pixel)
 
-
+def check_merged(img_file):
+    if "merged" in img_file:
+        return True
+    else:
+        return False
 
 
 
