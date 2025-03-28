@@ -16,6 +16,8 @@ import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 import random
+from scipy.signal import find_peaks
+from intensity_hkPlanes import intensity_hk_plane
 
 # Log peak data to the log.data file
 def log_data(message: str, info: str, log_file="log.data") -> None:
@@ -109,7 +111,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         filtered_avg = np.mean(data) if data.size > 0 else 0
         return data, filtered_avg
     
-    def find_peaks(data: list[np.ndarray], height=None, min_prominence=18, min_distance=5) -> tuple[np.ndarray, int, float]:
+    def peak_finding(data: list[np.ndarray], height=None, min_prominence=18, min_distance=5) -> tuple[np.ndarray, int, float]:
         # Ensure data is a numpy array
         data = np.asarray(data)
 
@@ -134,6 +136,30 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         filtered_peaks, avg_peak_I = filter_large_values(prominent_peaks)
         N_peaks = len(filtered_peaks) 
         return filtered_peaks, N_peaks, avg_peak_I
+
+    def detect_peaks(L_values: np.ndarray, intensity: np.ndarray):
+        """
+        Detects peaks in intensity data and returns their positions and maximum intensities.
+
+        Parameters:
+        L_values (np.ndarray): 1D array of L positions.
+        intensity (np.ndarray): 1D array of intensity values.
+        height (float, optional): Minimum height of peaks.
+        distance (int, optional): Minimum number of points between peaks.
+        prominence (float, optional): Minimum prominence of peaks.
+
+        Returns:
+        tuple: (peak_positions, peak_intensities), both as numpy arrays.
+        """
+        # Find peaks in the intensity data
+        height, prominence = np.mean(intensity)+ 0.5 * np.std(intensity), 0.1 * (np.max(intensity) - np.min(intensity))  
+        peak_indices, properties = find_peaks(intensity, height=height, threshold=height, distance=None, prominence=prominence, width=None, wlen=None, rel_height=0.5, plateau_size=None)
+        
+        # Get the corresponding L positions and intensity values of peaks
+        peak_positions = L_values[peak_indices]
+        peak_intensities = intensity[peak_indices]
+
+        return peak_positions, peak_intensities
 
     def initial_parameters(plane: str) -> list[tuple, tuple]:
             # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
@@ -161,7 +187,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
     planes_plot_data = [[] for _ in range(len(Planes))]  # Ensure separate lists for each plane
 
     # Run the data processing for each plane
-    Y_width = 5
+    Y_width = 10
     noise_cap = 10
     plane_idx = 0
     for plane, plane_data in zip(Planes, data):
@@ -177,25 +203,29 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
             
             # Get the peak's data and save them in the log.data file
             plot_data = filter_large_values(row_means, multiplier=30)[0]
-            peaks_pos, N_peaks, avg_peak_I = find_peaks(plot_data)
-            #data[data < noise_cap] = 0.0
-
             size = np.size(plot_data)
+
             y_0, y_1 = Y0 - N_pixel/2, Y1 - N_pixel/2 # rescale the origin for the peaks 
 
-            log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in peaks_pos]}, Average peak intensity: {round(avg_peak_I,2)}")
+            #plot_data[plot_data < noise_cap] = 0.0
 
             l_plot = ratio * np.linspace(y_0, y_1, size)
             I_plot = plot_data
 
             planes_plot_data[plane_idx].append((l_plot, I_plot))
 
+            peaks_pos, N_peaks, avg_peak_I = peak_finding(I_plot)
+            sp_peaks_pos, sp_peaks_I = detect_peaks(l_plot, I_plot)
+            log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in peaks_pos]}, Average peak intensity: {round(avg_peak_I,2)}")
+            log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in sp_peaks_pos.tolist()]}")
+
+
             peak_index += 1
         plane_idx += 1
 
     return planes_plot_data
 
-def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=False, save_path='plot.png'):
+def plots_function(plot_dict, Planes, voltages=None, mode='stacked', save_fig=False, save_path='plot.png'):
     """
     Generates plots for intensity vs. L values from given voltage-dependent data.
 
@@ -273,12 +303,14 @@ def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=Fa
                 fig, ax = plt.subplots(figsize=(8, 6))
                 
                 shifts = []
+                max_I = 0
                 for v_idx, voltage in enumerate(voltages):
                     plane_data = plot_dict[voltage][plane_idx]
                     L_plot, I_plot = plane_data[pos]
-                    shift = v_idx * max(I_plot) * 1.2  # Stack plots with spacing
+                    shift = v_idx * max_I * 1.2  # Stack plots with spacing
                     shifts.append(shift)
                     ax.plot(L_plot, I_plot + shift, color='k')
+                    max_I = max(I_plot)
                 
                 # Create a secondary y-axis for voltage labels
                 ax2 = ax.twinx()
@@ -405,6 +437,9 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                 img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
                            if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
                 if img_files:
+                    # A funtion to strat data processing based on the planes present at img_files
+                    # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
+                    # Function for other functionalitites
                     print('Processing existing files')
                     plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
                 continue
@@ -445,18 +480,21 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
                         if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
             if img_files:
+                # A funtion to strat data processing based on the planes present at img_files
+                # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
+                # Function for other functionalitites
                 print('Processing new and existing files')
                 plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
         plots_function(plot_dic, Planes)
 
-
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["80K"]  # Add temperatures here
+TEMPERATURES = ["80K", "15K"]  # Add temperatures here
 
 VOLTAGES = {
             "80K": ["0.0V", "8.0V", "16.0V", "24.0V", "38.0V"],
+            "15K": ["5.0V", "20.0V", "57.0V", "125.0V"]
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
