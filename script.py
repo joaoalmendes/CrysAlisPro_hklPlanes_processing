@@ -59,6 +59,16 @@ def visualize(img_file: np.array) -> None:
     del plot
     qt.QApplication.quit()  # Ensure the application is properly shut down
 
+def reorder_files_to_data(img_files, Planes):
+    # Reorder data to align with planes
+    # Map extracted plane names to corresponding files
+    plane_to_file = {extract_plane_from_filename(os.path.basename(f)): f for f in img_files}
+    # Sort files according to the order in PLANES
+    sorted_files = [plane_to_file[plane] for plane in Planes if plane in plane_to_file]
+    # Read the files with Fabio and pass them in np.array format to be precessed
+    data = [fabio.open(file).data for file in sorted_files]
+    return data
+
 def extract_plane_from_filename(filename: str) -> str | None:
     # Try matching "strain_" pattern first (with optional "merged_")
     match = re.search(r'strain_(merged_)?([^\.]+(?:\.\d+)?)(?:\.img)?', filename)
@@ -77,7 +87,7 @@ def extract_plane_from_filename(filename: str) -> str | None:
     print(f"Warning: Could not determine plane for filename: {filename}")
     return None
 
-def process_img_files(img_files: list[str], output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
+def process_img_files(data: np.array, output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
     # Defines a starting and ending collumn for the exctraction of the peak intensity data
     def calculate_columns(center, width = 10):
         start = center - width // 2
@@ -137,7 +147,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
         N_peaks = len(filtered_peaks) 
         return filtered_peaks, N_peaks, avg_peak_I
 
-    def detect_peaks(L_values: np.ndarray, intensity: np.ndarray):
+    def detect_peaks_scipy(L_values: np.ndarray, intensity: np.ndarray):
         """
         Detects peaks in intensity data and returns their positions and maximum intensities.
 
@@ -168,14 +178,6 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
                 "(3,k,l)": [(619, 739, 738, 801), (739, 863, 738, 801)],
             }
             return params.get(plane, [])
-
-    # Reorder data to align with planes
-    # Map extracted plane names to corresponding files
-    plane_to_file = {extract_plane_from_filename(os.path.basename(f)): f for f in img_files}
-    # Sort files according to the order in PLANES
-    sorted_files = [plane_to_file[plane] for plane in Planes if plane in plane_to_file]
-    # Read the files with Fabio and pass them in np.array format to be precessed
-    data = [fabio.open(file).data for file in sorted_files]
 
     #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
 
@@ -215,7 +217,7 @@ def process_img_files(img_files: list[str], output_dir: str, temperature: str, v
             planes_plot_data[plane_idx].append((l_plot, I_plot))
 
             peaks_pos, N_peaks, avg_peak_I = peak_finding(I_plot)
-            sp_peaks_pos, sp_peaks_I = detect_peaks(l_plot, I_plot)
+            sp_peaks_pos, sp_peaks_I = detect_peaks_scipy(l_plot, I_plot)
             log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in peaks_pos]}, Average peak intensity: {round(avg_peak_I,2)}")
             log_data(f"Peak {peak_index}", f"Peaks: {[round(float(p+y_0)*ratio,2) for p in sp_peaks_pos.tolist()]}")
 
@@ -437,11 +439,11 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                 img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
                            if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
                 if img_files:
-                    # A funtion to strat data processing based on the planes present at img_files
+                    data = reorder_files_to_data(img_files, Planes)
                     # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
                     # Function for other functionalitites
                     print('Processing existing files')
-                    plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
+                    plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
                 continue
 
             # Determine the correct remote path dynamically
@@ -480,11 +482,11 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
                         if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
             if img_files:
-                # A funtion to strat data processing based on the planes present at img_files
+                data = reorder_files_to_data(img_files, Planes)
                 # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
                 # Function for other functionalitites
                 print('Processing new and existing files')
-                plot_dic[voltage] = process_img_files(img_files, voltage_path, temperature, voltage, Planes)
+                plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
         plots_function(plot_dic, Planes)
 
 # Inputs and code execution order
