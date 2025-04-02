@@ -74,7 +74,7 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         ax.add_patch(circle)
     
     # Apply the formatter to X and Y axis (fixing missing 'ratio' issue)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))    ## N_pixel is not the same for these cuts, need to check on CrysAlis the right value
     ax.yaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))
 
     # Set labels and show the plot
@@ -123,7 +123,7 @@ def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir,
         chirality = detect_chirality(peaks_intensities_list)
         chirality_list.append(chirality)
 
-        title = str(plane) + "; Chirality: " + str(chirality)
+        title = "Plane: " + str(plane) + "; Chirality: " + str(chirality)
         plot_hk_plane(hk_parameters, peaks_intensities_list, peaks_positions, peak_BoxSize, plane_data, title, temperature, voltage, is_merged, plane, local_dir, ratio, N_pixel)
 
 def check_merged(img_file):
