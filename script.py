@@ -17,7 +17,7 @@ from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 import random
 from scipy.signal import find_peaks
-from intensity_hkPlanes import intensity_hk_plane
+from intensity_hkPlanes import intensity_hk_plane, check_merged
 
 # Log peak data to the log.data file
 def log_data(message: str, info: str, log_file="log.data") -> None:
@@ -227,7 +227,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
     return planes_plot_data
 
-def plots_function(plot_dict, Planes, voltages=None, mode='stacked', save_fig=False, save_path='plot.png'):
+def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=False, save_path='plot.png'):
     """
     Generates plots for intensity vs. L values from given voltage-dependent data.
 
@@ -302,14 +302,15 @@ def plots_function(plot_dict, Planes, voltages=None, mode='stacked', save_fig=Fa
         
         elif mode == 'stacked':
             for pos in range(2):
-                fig, ax = plt.subplots(figsize=(8, 6))
+                fig, ax = plt.subplots(figsize=(6, 8))
                 
                 shifts = []
                 max_I = 0
+                shift = 0
                 for v_idx, voltage in enumerate(voltages):
                     plane_data = plot_dict[voltage][plane_idx]
                     L_plot, I_plot = plane_data[pos]
-                    shift = v_idx * max_I * 1.2  # Stack plots with spacing
+                    shift += max_I * 1.2  # Stack plots with spacing
                     shifts.append(shift)
                     ax.plot(L_plot, I_plot + shift, color='k')
                     max_I = max(I_plot)
@@ -408,7 +409,7 @@ def find_correct_data_path(base_path):
     else:
         return None
 
-def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES: list[str], VOLTAGES: dict[str, list[str]]) -> None:
+def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES: list[str], VOLTAGES: dict[str, list[str]], ratio: float, N_pixel: int, processing_mode: str) -> None:
     """
     Main function that checks for existing data, processes new data if needed, and organizes files.
 
@@ -440,10 +441,12 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                            if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
                 if img_files:
                     data = reorder_files_to_data(img_files, Planes)
-                    # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
-                    # Function for other functionalitites
                     print('Processing existing files')
-                    plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
+                    if processing_mode == "hk_planes":
+                        is_merged = check_merged(img_files[0])
+                        intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel)
+                    else:
+                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
                 continue
 
             # Determine the correct remote path dynamically
@@ -482,16 +485,19 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             img_files = [os.path.join(local_data_path, f) for f in os.listdir(local_data_path) 
                         if f.endswith(".img") and extract_plane_from_filename(f) in Planes]
             if img_files:
-                data = reorder_files_to_data(img_files, Planes)
-                # Place a function that reorders the data and puts the files into array data using fabio to then use in other function for other functionalities
-                # Function for other functionalitites
-                print('Processing new and existing files')
-                plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
-        plots_function(plot_dic, Planes)
+                    data = reorder_files_to_data(img_files, Planes)
+                    print('Processing existing files')
+                    if processing_mode == "hk_planes":
+                        is_merged = check_merged(img_files[0])
+                        intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel)
+                    else:
+                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
+        if processing_mode == "hk_planes":
+            continue
+        else:
+            plots_function(plot_dic, Planes)
 
 # Inputs and code execution order
-
-
 
 # Inputs: Define temperatures and voltages to process
 TEMPERATURES = ["80K", "15K"]  # Add temperatures here
@@ -503,6 +509,9 @@ VOLTAGES = {
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
 PLANES = ["(h,3,l)", "(3,k,l)"]
+#PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
+
+##The O120_twin3 planes will be named, planes (1-h,2+k,l), change this in CrysAlis
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 N_pixel = 1476
@@ -512,7 +521,7 @@ if __name__ == "__main__":
     # Base directory where the temperature folders are located, in the Cloud Storage
     base_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     local_dir = os.getcwd() 
-    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES)
+    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio, N_pixel, processing_mode=None)
 
 
 
