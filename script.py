@@ -172,10 +172,11 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
         return peak_positions, peak_intensities
 
     def initial_parameters(plane: str) -> list[tuple, tuple]:
-            # This is going to change from case to case, that's why first one does a visual analysis, this data (parameters) is taken from the ROI.dat file and inputed here
+            # This is going to change from case to case, that's why first one does a visual analysis
             params = {
                 "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)],
-                "(3,k,l)": [(619, 739, 738, 801), (739, 863, 738, 801)],
+                "(3,k,l)": [(619, 739, 738, 801), (739, 862, 738, 801)],
+                "(1-h,2+k,l)": [(739, 862, 675, 738), (862, 986, 675, 738)],
             }
             return params.get(plane, [])
 
@@ -508,12 +509,11 @@ VOLTAGES = {
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-PLANES = ["(h,3,l)", "(3,k,l)"]
-#PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
-
-##The O120_twin3 planes will be named, planes (1-h,2+k,l), change this in CrysAlis
+#PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
+PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
+ratio_hkPlanes = 0.00813008
 N_pixel = 1476
 
 # Code execution order
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     # Base directory where the temperature folders are located, in the Cloud Storage
     base_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     local_dir = os.getcwd() 
-    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio, N_pixel, processing_mode=None)
+    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio_hkPlanes, N_pixel = N_pixel, processing_mode="hk_planes")
 
 
 

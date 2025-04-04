@@ -73,9 +73,9 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
         ax.add_patch(circle)
     
-    # Apply the formatter to X and Y axis (fixing missing 'ratio' issue)
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))    ## N_pixel is not the same for these cuts, need to check on CrysAlis the right value
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio:.2f}"))
+
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio -1.5 :.2f}"))    ## N_pixel is not the same for these cuts, need to check on CrysAlis the right value
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio / np.sin(np.radians(60)):.2f}"))
 
     # Set labels and show the plot
     ax.set_xlabel("H")
