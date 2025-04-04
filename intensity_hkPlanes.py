@@ -7,6 +7,7 @@ import numpy as np
 from matplotlib.colors import Normalize
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import FuncFormatter, MultipleLocator
 
 # It assumes -> True: Right; False: Left; None: Non detected
 def detect_chirality(peak_intensities: list[float]) -> bool:
@@ -73,11 +74,27 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
         ax.add_patch(circle)
     
+    sin60 = np.sin(np.radians(60))
 
-    ax.xaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio -1.5 :.2f}"))    ## N_pixel is not the same for these cuts, need to check on CrysAlis the right value
-    ax.yaxis.set_major_formatter(FuncFormatter(lambda value, pos: f"{(value - N_pixel/2) * ratio / np.sin(np.radians(60)):.2f}"))
+    # Set spacing in HK space
+    tick_step_hk = 0.25
 
-    # Set labels and show the plot
+    # Convert HK spacing to pixel units
+    pixel_step_H = tick_step_hk / ratio
+    pixel_step_K = tick_step_hk / sin60 / ratio
+
+    # Apply to X axis
+    ax.xaxis.set_major_locator(MultipleLocator(pixel_step_H))
+    ax.xaxis.set_major_formatter(FuncFormatter(
+        lambda value, pos: f"{(value - N_pixel / 2) * ratio - 1.5:.2f}"
+    ))
+
+    # Apply to Y axis (this is what you may have missed or overwritten)
+    ax.yaxis.set_major_locator(MultipleLocator(pixel_step_K))
+    ax.yaxis.set_major_formatter(FuncFormatter(
+        lambda value, pos: f"{(value - N_pixel / 2) * ratio / sin60:.2f}"
+    ))
+        # Set labels and show the plot
     ax.set_xlabel("H")
     ax.set_ylabel("K")
     plt.tight_layout()
