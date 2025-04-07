@@ -228,7 +228,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
     return planes_plot_data
 
-def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=False, save_path='plot.png'):
+def plots_function(plot_dict, Planes, T, voltages=None, mode='stacked', save_fig=False, save_path='plot.png'):
     """
     Generates plots for intensity vs. L values from given voltage-dependent data.
 
@@ -267,7 +267,7 @@ def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=Fa
                     axes[pos].plot(L_plot, I_plot, label=f'Peak {pos+1}', color='b' if pos == 0 else 'r')
                     axes[pos].set_ylabel("Intensity")
                     axes[pos].legend()
-                    axes[pos].set_title(f"V={voltage} - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
+                    axes[pos].set_title(f"T={T}, V={voltage} - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                 
                 axes[-1].set_xlabel("L")
                 plt.tight_layout()
@@ -289,7 +289,7 @@ def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=Fa
                     axes[pos].plot(L_plot, I_plot, label=f'V={voltage}', color=colors[v_idx])
                     axes[pos].legend()
                     axes[pos].set_ylabel("Intensity")
-                    axes[pos].set_title(f"Overlay - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
+                    axes[pos].set_title(f"HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                     
             axes[-1].set_xlabel("L")
             plt.tight_layout()
@@ -305,26 +305,25 @@ def plots_function(plot_dict, Planes, voltages=None, mode='overlay', save_fig=Fa
             for pos in range(2):
                 fig, ax = plt.subplots(figsize=(6, 8))
                 
-                shifts = []
                 max_I = 0
                 shift = 0
                 for v_idx, voltage in enumerate(voltages):
                     plane_data = plot_dict[voltage][plane_idx]
                     L_plot, I_plot = plane_data[pos]
                     shift += max_I * 1.2  # Stack plots with spacing
-                    shifts.append(shift)
+
+                    ax.text(L_plot[-1] + 0.1 * (max(L_plot) - min(L_plot)),  # a bit to the right
+                                        min(I_plot) + shift,
+                                        f"{voltage}",
+                                        va='center', ha='left',
+                                        fontsize=12, color='black')
+
                     ax.plot(L_plot, I_plot + shift, color='k')
                     max_I = max(I_plot)
                 
-                # Create a secondary y-axis for voltage labels
-                ax2 = ax.twinx()
-                ax2.set_yticks(shifts)
-                ax2.set_yticklabels([f'{v}' for v in voltages], fontsize=12, color='black')
-                ax2.set_ylabel("Voltage", fontsize=14, color='black')
-                
                 ax.set_xlabel("L")
                 ax.set_ylabel("Intensity")
-                ax.set_title(f"Stacked - HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
+                ax.set_title(f"HKL Plane {Planes[plane_idx]} - Peak {pos+1}")
                 plt.tight_layout()
                 
                 if save_fig:
@@ -496,21 +495,24 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
         if processing_mode == "hk_planes":
             continue
         else:
-            plots_function(plot_dic, Planes)
+            plots_function(plot_dic, Planes, temperature)
 
 # Inputs and code execution order
 
 # Inputs: Define temperatures and voltages to process
-TEMPERATURES = ["80K", "15K"]  # Add temperatures here
+TEMPERATURES = [
+                "80K", 
+                "15K",
+                ]  # Add temperatures here
 
 VOLTAGES = {
-            "80K": ["0.0V", "8.0V", "16.0V", "24.0V", "38.0V"],
-            "15K": ["5.0V", "20.0V", "57.0V", "125.0V"]
+            "80K": [ "0.0V", "8.0V", "16.0V", "20.0V", "24.0V", "29.0V", "38.0V"],
+            "15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-#PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
-PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
+PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
+#PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 ratio_hkPlanes = 0.00813008
@@ -521,7 +523,7 @@ if __name__ == "__main__":
     # Base directory where the temperature folders are located, in the Cloud Storage
     base_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     local_dir = os.getcwd() 
-    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio_hkPlanes, N_pixel = N_pixel, processing_mode="hk_planes")
+    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio, N_pixel = N_pixel, processing_mode=None)
 
 
 
