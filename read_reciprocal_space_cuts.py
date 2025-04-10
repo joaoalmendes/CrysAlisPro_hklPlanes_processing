@@ -502,17 +502,17 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
 # Inputs: Define temperatures and voltages to process
 TEMPERATURES = [
                 "80K", 
-                "15K",
+                #"15K",
                 ]  # Add temperatures here
 
 VOLTAGES = {
-            "80K": [ "0.0V", "8.0V", "16.0V", "20.0V", "24.0V", "29.0V", "38.0V"],
-            "15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
+            "80K": [ "12.0V", "20.0V", "29.0V"],
+            #"15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
-#PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
+#PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
+PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 ratio_hkPlanes = 0.00813008
@@ -523,7 +523,7 @@ if __name__ == "__main__":
     # Base directory where the temperature folders are located, in the Cloud Storage
     base_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     local_dir = os.getcwd() 
-    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio, N_pixel = N_pixel, processing_mode=None)
+    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio_hkPlanes, N_pixel = N_pixel, processing_mode="hk_planes")
 
 
 
