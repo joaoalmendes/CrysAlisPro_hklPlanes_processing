@@ -1,13 +1,9 @@
-import fabio    # to read the .img files
-import os
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Circle
-import numpy as np
 from matplotlib.colors import Normalize
-from matplotlib.colorbar import ColorbarBase
-from matplotlib.ticker import FuncFormatter
-from matplotlib.ticker import FuncFormatter, MultipleLocator
+from matplotlib.ticker import MultipleLocator, FuncFormatter
+from matplotlib.patches import Circle
+import os
 
 # It assumes -> True: Right; False: Left; None: Non detected
 def detect_chirality(peak_intensities: list[float]) -> bool:
@@ -73,15 +69,14 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         # Add a red circle around each peak
         circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
         ax.add_patch(circle)
-    
-    sin60 = np.sin(np.radians(60))
 
     # Set spacing in HK space
-    tick_step_hk = 0.25
+    sin60 = np.sin(np.radians(60))
+    tick_step = 0.25
 
     # Convert HK spacing to pixel units
-    pixel_step_H = tick_step_hk / ratio
-    pixel_step_K = tick_step_hk / sin60 / ratio
+    pixel_step_H = tick_step / ratio
+    pixel_step_K = tick_step * sin60 / ratio
 
     # Apply to X axis
     ax.xaxis.set_major_locator(MultipleLocator(pixel_step_H))
@@ -89,21 +84,55 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
         lambda value, pos: f"{(value - N_pixel / 2) * ratio - 1.5:.2f}"
     ))
 
-    # Apply to Y axis (this is what you may have missed or overwritten)
-    ax.yaxis.set_major_locator(MultipleLocator(pixel_step_K))
-    ax.yaxis.set_major_formatter(FuncFormatter(
-        lambda value, pos: f"{(value - N_pixel / 2) * ratio / sin60:.2f}"
-    ))
-        # Set labels and show the plot
+    # Center of the y-axis in pixel coordinates
+    subset_center_y = (plot_range[2] + plot_range[3]) / 2
+
+    # Generate ticks within bounds
+    tick_positions = []
+    tick_labels = []
+
+    i = 0
+    K_center = 3
+    while True:
+        # Check both directions from the center
+        pos_plus = subset_center_y + i * pixel_step_K
+        pos_minus = subset_center_y - i * pixel_step_K
+        val_plus = K_center + i * tick_step
+        val_minus = K_center - i * tick_step
+
+        added = False
+        if plot_range[2] <= pos_plus <= plot_range[3]:
+            tick_positions.append(pos_plus)
+            tick_labels.append(f"{val_plus:.2f}")
+            added = True
+
+        if i != 0 and plot_range[2] <= pos_minus <= plot_range[3]:
+            tick_positions.append(pos_minus)
+            tick_labels.append(f"{val_minus:.2f}")
+            added = True
+
+        if not added:
+            break
+        i += 1
+
+    # Sort ticks so they appear from bottom to top correctly
+    tick_positions, tick_labels = zip(*sorted(zip(tick_positions, tick_labels)))
+
+    # Apply to y-axis
+    ax.set_yticks(tick_positions)
+    ax.set_yticklabels(tick_labels)
+
+    # Set labels and show the plot
     ax.set_xlabel("H")
-    ax.set_ylabel("K")
+    ax.set_ylabel("K (values)")
     plt.tight_layout()
     os.chdir(f"{local_Dir}/Data/{temperature}/{voltage}/")
     # Save the figure with specified dpi (higher dpi = higher resolution)
-    plt.savefig(fname = f"{Plane}.png", dpi=300, bbox_inches='tight')
+    #plt.savefig(fname = f"{Plane}.png", dpi=300, bbox_inches='tight')
+    plt.show()
     plt.close()
     os.chdir(local_Dir)
-    #plt.show()
+
 
 def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel):
     # For benchmarking the difference between merged and non-merged data
