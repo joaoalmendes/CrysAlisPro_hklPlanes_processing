@@ -44,8 +44,9 @@ def visualize(img_file: np.array) -> None:
 
     # Create a Colormap object; here minimum value is 0 and maximum 100 but for different data (sets) this might need adjustment
     # But adjust as you think it's more sutiable to you or your data
+    # Colormaps: viridis, gray_r, seismic
     max_cap = 100
-    colormap = Colormap(name="viridis", vmin=0, vmax=max_cap, normalization="linear")
+    colormap = Colormap(name="gray_r", vmin=0, vmax=max_cap, normalization="linear")
 
     # Add the image to the plot with the Colormap object
     plot.addImage(img_file, colormap=colormap, legend="Image Data")
@@ -87,7 +88,7 @@ def extract_plane_from_filename(filename: str) -> str | None:
     print(f"Warning: Could not determine plane for filename: {filename}")
     return None
 
-def process_img_files(data: np.array, output_dir: str, temperature: str, voltage: str, Planes: list[str]) -> None:
+def process_img_files(data: np.array, output_dir: str, temperature: str, voltage: str, Planes: list[str], merged: bool) -> None:
     # Defines a starting and ending collumn for the exctraction of the peak intensity data
     def calculate_columns(center, width = 10):
         start = center - width // 2
@@ -174,16 +175,12 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
     def initial_parameters(plane: str) -> list[tuple, tuple]:
             # This is going to change from case to case, that's why first one does a visual analysis
             params = {
-                "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)],
+                "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)], # this is as (X0, X1, Y0, Y1)
                 "(3,k,l)": [(619, 739, 738, 801), (739, 862, 738, 801)],
                 "(1-h,2+k,l)": [(739, 862, 675, 738), (862, 986, 675, 738)],
+                "(0,k,l)": [(985-10, 985+10, 674, 737), (985-10, 985+10, 674, 737)],
             }
             return params.get(plane, [])
-
-    #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
-
-    # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
-    #visualize(data[0])
 
     log_data(f"Temperature: {temperature}, Voltage: {voltage}", "")
 
@@ -191,9 +188,14 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
     # Run the data processing for each plane
     Y_width = 10
-    noise_cap = 10
+    noise_cap = 150
     plane_idx = 0
     for plane, plane_data in zip(Planes, data):
+        #N_pixel = np.sqrt(np.size(data)/2)  # If one doen't know the pixel data size
+
+        # Visualize the data previoustly if needed/wanted, at first this is all one needs to do in order to extract the information needed to run the code systematically
+        #visualize(plane_data)
+
         par_list = initial_parameters(plane)
         log_data(f"Plane: {plane}", "")
         peak_index = 0
@@ -201,6 +203,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
             X0, X1, Y0, Y1 = par
             X_start, X_end = calculate_columns(int((X0+X1)/2))
             Y0, Y1 = Y0-Y_width, Y1+Y_width
+            #Y0, Y1 = Y0+int(Y_width/2), Y1-int(Y_width/2)
             roi_data = plane_data[Y0:Y1, X_start:X_end]
             row_means = np.mean(roi_data, axis=1)   # Calculate the mean across each row for the given the column values
             
@@ -210,10 +213,13 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
             y_0, y_1 = Y0 - N_pixel/2, Y1 - N_pixel/2 # rescale the origin for the peaks 
 
-            #plot_data[plot_data < noise_cap] = 0.0
+            #plot_data[plot_data > noise_cap] = 0.0
 
             l_plot = ratio * np.linspace(y_0, y_1, size)
-            I_plot = plot_data
+            if merged == True:
+                I_plot = plot_data / 2
+            else:
+                I_plot = plot_data
 
             planes_plot_data[plane_idx].append((l_plot, I_plot))
 
@@ -228,7 +234,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
     return planes_plot_data
 
-def plots_function(plot_dict, Planes, T, voltages=None, mode='stacked', save_fig=False, save_path='plot.png'):
+def plots_function(plot_dict, Planes, T, voltages=None, mode='overlay', save_fig=False, save_path='plot.png'):
     """
     Generates plots for intensity vs. L values from given voltage-dependent data.
 
@@ -442,11 +448,11 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
                 if img_files:
                     data = reorder_files_to_data(img_files, Planes)
                     print('Processing existing files')
+                    is_merged = check_merged(img_files[0])
                     if processing_mode == "hk_planes":
-                        is_merged = check_merged(img_files[0])
                         intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel)
                     else:
-                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
+                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes, is_merged)
                 continue
 
             # Determine the correct remote path dynamically
@@ -487,11 +493,11 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
             if img_files:
                     data = reorder_files_to_data(img_files, Planes)
                     print('Processing existing files')
+                    is_merged = check_merged(img_files[0])
                     if processing_mode == "hk_planes":
-                        is_merged = check_merged(img_files[0])
                         intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel)
                     else:
-                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes)
+                        plot_dic[voltage] = process_img_files(data, voltage_path, temperature, voltage, Planes, is_merged)
         if processing_mode == "hk_planes":
             continue
         else:
@@ -502,17 +508,18 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
 # Inputs: Define temperatures and voltages to process
 TEMPERATURES = [
                 "80K", 
-                #"15K",
+                "15K",
                 ]  # Add temperatures here
 
 VOLTAGES = {
-            "80K": [ "12.0V", "20.0V", "29.0V"],
-            #"15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
+            "80K": [ "0.0V", "8.0V", "12.0V", "14.5V", "20.0V", "29.0V", "38.0V", "55.0V"],
+            "15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions
-#PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
-PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
+PLANES = ["(h,3,l)", "(3,k,l)", "(1-h,2+k,l)"]
+#PLANES = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
+#PLANES = ["(0,k,l)"]
 
 ratio = 0.01578947 #(l per pixel); Ratio to convert pixel units to l units calculated from gathered visual data where one concludes that 190 pixels correspond to 3l
 ratio_hkPlanes = 0.00813008
@@ -523,7 +530,7 @@ if __name__ == "__main__":
     # Base directory where the temperature folders are located, in the Cloud Storage
     base_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     local_dir = os.getcwd() 
-    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio_hkPlanes, N_pixel = N_pixel, processing_mode="hk_planes")
+    process_data(base_dir, local_dir, PLANES, TEMPERATURES, VOLTAGES, ratio = ratio, N_pixel = N_pixel, processing_mode=None)
 
 
 
