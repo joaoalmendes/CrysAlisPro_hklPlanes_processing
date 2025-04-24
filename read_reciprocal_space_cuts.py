@@ -178,7 +178,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
                 "(h,3,l)": [(245, 369, 676, 738), (369, 490, 676, 738)], # this is as (X0, X1, Y0, Y1)
                 "(3,k,l)": [(619, 739, 738, 801), (739, 862, 738, 801)],
                 "(1-h,2+k,l)": [(739, 862, 675, 738), (862, 986, 675, 738)],
-                "(0,k,l)": [(985-10, 985+10, 674, 737), (985-10, 985+10, 674, 737)],
+                "(0,k,l)": [(985, 985, 674, 737), (985, 985, 674, 737)],    # this is an example if one wants to scan the BPs in-plane position along l
             }
             return params.get(plane, [])
 
@@ -203,7 +203,7 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
             X0, X1, Y0, Y1 = par
             X_start, X_end = calculate_columns(int((X0+X1)/2))
             Y0, Y1 = Y0-Y_width, Y1+Y_width
-            #Y0, Y1 = Y0+int(Y_width/2), Y1-int(Y_width/2)
+            #Y0, Y1 = Y0+int(Y_width/2), Y1-int(Y_width/2)  # If excluding BPs is necessary
             roi_data = plane_data[Y0:Y1, X_start:X_end]
             row_means = np.mean(roi_data, axis=1)   # Calculate the mean across each row for the given the column values
             
@@ -213,10 +213,10 @@ def process_img_files(data: np.array, output_dir: str, temperature: str, voltage
 
             y_0, y_1 = Y0 - N_pixel/2, Y1 - N_pixel/2 # rescale the origin for the peaks 
 
-            #plot_data[plot_data > noise_cap] = 0.0
+            #plot_data[plot_data > noise_cap] = 0.0     # If removing BPs intensity is needed
 
             l_plot = ratio * np.linspace(y_0, y_1, size)
-            if merged == True:
+            if merged == True:             # Handle the merged data to keep the results consistent
                 I_plot = plot_data / 2
             else:
                 I_plot = plot_data
@@ -260,6 +260,7 @@ def plots_function(plot_dict, Planes, T, voltages=None, mode='overlay', save_fig
         voltages = list(plot_dict.keys())  # Use all available voltages
     
     num_planes = len(Planes)  # Determine number of HKL planes
+    # Colormaps: tab20, tab10, nipy_spectral, plasma, viridis
     colors = plt.cm.viridis(np.linspace(0, 1, len(voltages)))  # Color gradient for voltages
     
     for plane_idx in range(num_planes):
