@@ -63,12 +63,12 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
     rescaled_positions = {peak_index: (x - delta_x, y - delta_y) for peak_index, (x, y) in PeaksPos.items()}
 
     # Add text and red circle markers for each peak
-    for peak_index, pos in rescaled_positions.items():
-        x, y = pos
-        ax.text(x + delta_x, y + delta_y + circle_size[0], f'{round(intensities[peak_index], 1)}', color='red', ha='center', va='bottom', fontsize=9)
+    #for peak_index, pos in rescaled_positions.items():
+        #x, y = pos
+        #ax.text(x + delta_x, y + delta_y + circle_size[0], f'{round(intensities[peak_index], 1)}', color='red', ha='center', va='bottom', fontsize=9)
         # Add a red circle around each peak
-        circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
-        ax.add_patch(circle)
+        #circle = Circle((x + delta_x, y + delta_y), radius=circle_size[0], edgecolor='red', facecolor='none', lw=1.0)
+        #ax.add_patch(circle)
 
     # Set spacing in HK space
     sin60 = np.sin(np.radians(60))
@@ -132,7 +132,6 @@ def plot_hk_plane(plot_range: tuple, intensities: list[float], PeaksPos: dict[in
     plt.show()
     plt.close()
     os.chdir(local_Dir)
-
 
 def intensity_hk_plane(data, Planes, is_merged, temperature, voltage, local_dir, ratio, N_pixel):
     # For benchmarking the difference between merged and non-merged data
