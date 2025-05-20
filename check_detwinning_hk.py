@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import os
 from read_reciprocal_space_cuts import check_existing_data, extract_plane_from_filename, reorder_files_to_data, check_merged#, generate_pattern
 
-def generate_data(data, Planes_list, is_merged, temperature, voltage, local_path, ratio, N_pixel):
+def generate_data(data, Planes_list, merged, voltage):
     # Initial Parameters
     zone_1 = (840, 1000, 990, 1130)
     zone_2 = (840, 1000, 990, 1130)   # (col_start, col_end, row_start, row_end)/(X_start, X_end, Y_start, Y_end); defines the boxe delimitation for the hk space of comparison
@@ -32,12 +32,15 @@ def generate_data(data, Planes_list, is_merged, temperature, voltage, local_path
             PeaksPositions_RangeForCalc[index] = (y - delta_y, y + delta_y, x - delta_x, x + delta_x)
             index += 1
 
-        for plane, plane_data in zip(Planes, data):
+        for plane, plane_data in zip(Planes_list, data):
             index = 0
             peaks_intensities = []
             for inputs in PeaksPositions_RangeForCalc.values():
                 peak_data = plane_data[inputs[0]: inputs[1], inputs[2]: inputs[3]]
-                data_intensity = np.mean(peak_data)
+                if merged == True:
+                    data_intensity = np.mean(peak_data) / 2
+                else:
+                    data_intensity = np.mean(peak_data)
                 peaks_intensities.append(round(float(data_intensity),2))
                 index += 1
             
@@ -47,11 +50,11 @@ def generate_data(data, Planes_list, is_merged, temperature, voltage, local_path
             I_3 = (peaks_intensities[2] + peaks_intensities[5]) / 2  # Domain 3
             return [voltage, zone, plane, I_1, I_2, I_3]
 
-def get_data(original_path, Planes_list, temperature, ratio, N_pixel):
+def get_data(original_path, Planes_list):
     os.chdir(original_path)
     data_dataframe = []
     for voltage in os.listdir():
-        local_path = f"./{voltage}/data"
+        local_path = original_path + f"{voltage}/data/"
         os.chdir(local_path)
         gather_needed = check_existing_data(local_path, Planes_list)
         if not gather_needed:
@@ -61,7 +64,7 @@ def get_data(original_path, Planes_list, temperature, ratio, N_pixel):
                 data = reorder_files_to_data(img_files, Planes_list)
                 print('Processing existing files')
                 is_merged = check_merged(img_files[0])
-                line = generate_data(data, Planes_list, is_merged, temperature, voltage, local_path, ratio, N_pixel).copy()
+                line = generate_data(data, Planes_list, is_merged, voltage).copy()
                 data_dataframe.append(line)
         os.chdir(original_path)
     return data_dataframe
@@ -100,10 +103,6 @@ def process_data(data_file, out_file_name):
 def plot_data(processed_data_file, temperature):
     # Read the processed data
     df = pd.read_csv(processed_data_file, sep='\t')
-
-    # Map numerical plane values to Miller plane strings
-    plane_mapping = {0.0: '(h,k,0)', -0.25: '(h,k,-0.25)', -0.5: '(h,k,-0.5)'}
-    df['Plane'] = df['Plane'].astype(float).map(plane_mapping)
 
     # Validate temperature
     if temperature not in ['80K', '15K']:
@@ -150,7 +149,7 @@ def plot_data(processed_data_file, temperature):
                           c=colors[intensity], label=intensity, s=50, marker='o')
         
         ax.set_title(f'Plane {plane}')
-        ax.set_xlabel('Voltage')
+        ax.set_xlabel('Voltage (V)')
         ax.set_ylabel('Normalized Intensity')
         ax.legend()
 
@@ -177,7 +176,7 @@ def plot_data(processed_data_file, temperature):
                       c=colors[intensity], label=intensity, s=50, marker='o')
     
     ax.set_title(f'Normalized Intensities vs. Voltage ({separate_plane}, {temperature})')
-    ax.set_xlabel('Voltage')
+    ax.set_xlabel('Voltage (V)')
     ax.set_ylabel('Normalized Intensity')
     ax.legend()
     plt.tight_layout()
@@ -249,13 +248,13 @@ def plot_data(processed_data_file, temperature):
     # I_total plot
     axes[0].scatter(avg_data['Voltage'], avg_data['I_total'], c='purple', s=50, marker='o')
     axes[0].set_title('I_total (Averaged)')
-    axes[0].set_xlabel('Voltage')
+    axes[0].set_xlabel('Voltage (V)')
     axes[0].set_ylabel('I_total')
 
     # I_av plot
     axes[1].scatter(avg_data['Voltage'], avg_data['I_av'], c='teal', s=50, marker='o')
     axes[1].set_title('I_av (Averaged)')
-    axes[1].set_xlabel('Voltage')
+    axes[1].set_xlabel('Voltage (V)')
     axes[1].set_ylabel('I_av')
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -273,11 +272,10 @@ def plot_data(processed_data_file, temperature):
 running_script_path = os.getcwd()
 
 T = "80K"
-main_path = f"./Data/{T}/"
+main_path = running_script_path + f"/Data/{T}/"
 Planes = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
-ratio_Pixels_to_iAngs, Number_pixels = 0.00813008, N_pixel = 1476
 
-data_df = get_data(main_path, Planes, T, ratio_Pixels_to_iAngs, Number_pixels)
+data_df = get_data(main_path, Planes)
 
 os.chdir(running_script_path)
 # Create DataFrame
