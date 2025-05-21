@@ -3,7 +3,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
-from read_reciprocal_space_cuts import check_existing_data, extract_plane_from_filename, reorder_files_to_data, check_merged#, generate_pattern
+from read_reciprocal_space_cuts import check_existing_data, extract_plane_from_filename, reorder_files_to_data, check_merged
 
 def generate_data(data, Planes_list, merged, voltage):
     # Initial Parameters
@@ -22,6 +22,7 @@ def generate_data(data, Planes_list, merged, voltage):
 
     # Processing
     list_peaks_positions = [peaks_positions_1, peaks_positions_2, peaks_positions_3]
+    result = []  # Collect all rows
     for peaks_positions in list_peaks_positions:
         zone = list_peaks_positions.index(peaks_positions) + 1
         PeaksPositions_RangeForCalc = {}
@@ -48,7 +49,9 @@ def generate_data(data, Planes_list, merged, voltage):
             I_2 = (peaks_intensities[0] + peaks_intensities[3]) / 2   # Domain 2
             I_1 = (peaks_intensities[1] + peaks_intensities[4]) / 2   # Domain 1
             I_3 = (peaks_intensities[2] + peaks_intensities[5]) / 2  # Domain 3
-            return [voltage, zone, plane, I_1, I_2, I_3]
+            print(f"Appending row: {[voltage, zone, plane, I_1, I_2, I_3]}")
+            result.append([voltage, zone, plane, I_1, I_2, I_3])
+    return result
 
 def get_data(original_path, Planes_list):
     os.chdir(original_path)
@@ -64,8 +67,8 @@ def get_data(original_path, Planes_list):
                 data = reorder_files_to_data(img_files, Planes_list)
                 print('Processing existing files')
                 is_merged = check_merged(img_files[0])
-                line = generate_data(data, Planes_list, is_merged, voltage).copy()
-                data_dataframe.append(line)
+                lines = generate_data(data, Planes_list, is_merged, voltage).copy()
+                data_dataframe.extend(lines)
         os.chdir(original_path)
     return data_dataframe
 
@@ -135,8 +138,8 @@ def plot_data(processed_data_file, temperature):
         for intensity in ['I_1(normalised)', 'I_2(normalised)', 'I_3(normalised)']:
             if temperature == '80K':
                 # Split data for Voltage = 0.0 and others
-                zero_data = plane_data[plane_data['Voltage'] == 0.0]
-                non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
+                zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
+                non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
                 if not zero_data.empty:
                     ax.scatter(zero_data['Voltage'], zero_data[intensity], 
                               c=colors_special[intensity], label=f'{intensity} (V=0)', s=50, marker='o')
@@ -163,8 +166,8 @@ def plot_data(processed_data_file, temperature):
     
     for intensity in ['I_1(normalised)', 'I_2(normalised)', 'I_3(normalised)']:
         if temperature == '80K':
-            zero_data = plane_data[plane_data['Voltage'] == 0.0]
-            non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
+            zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
+            non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
             if not zero_data.empty:
                 ax.scatter(zero_data['Voltage'], zero_data[intensity], 
                           c=colors_special[intensity], label=f'{intensity} (V=0)', s=50, marker='o')
@@ -192,8 +195,8 @@ def plot_data(processed_data_file, temperature):
         plane_data = df[df['Plane'] == plane]
         
         if temperature == '80K':
-            zero_data = plane_data[plane_data['Voltage'] == 0.0]
-            non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
+            zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
+            non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
             if not zero_data.empty:
                 ax.scatter(zero_data['Voltage'], zero_data['A'], 
                           c='orange', label='A (V=0)', s=50, marker='o')
@@ -218,8 +221,8 @@ def plot_data(processed_data_file, temperature):
     plane_data = df[df['Plane'] == separate_plane]
     
     if temperature == '80K':
-        zero_data = plane_data[plane_data['Voltage'] == 0.0]
-        non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
+        zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
+        non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
         if not zero_data.empty:
             ax.scatter(zero_data['Voltage'], zero_data['A'], 
                       c='orange', label='A (V=0)', s=50, marker='o')
@@ -231,7 +234,7 @@ def plot_data(processed_data_file, temperature):
                   c='darkorange', label='A', s=50, marker='o')
     
     ax.set_title(f'Anisotropy Parameter vs. Voltage ({separate_plane}, {temperature})')
-    ax.set_xlabel('Voltage')
+    ax.set_xlabel('Voltage (V)')
     ax.set_ylabel('Anisotropy Parameter (A)')
     ax.legend()
     plt.tight_layout()
