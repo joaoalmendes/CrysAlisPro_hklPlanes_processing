@@ -67,7 +67,7 @@ def get_data(original_path, Planes_list):
                 data = reorder_files_to_data(img_files, Planes_list)
                 print('Processing existing files')
                 is_merged = check_merged(img_files[0])
-                lines = generate_data(data, Planes_list, is_merged, voltage).copy()
+                lines = generate_data(data, Planes_list, is_merged, float(voltage.replace('V', ''))).copy()
                 data_dataframe.extend(lines)
         os.chdir(original_path)
     return data_dataframe
@@ -107,6 +107,9 @@ def plot_data(processed_data_file, temperature):
     # Read the processed data
     df = pd.read_csv(processed_data_file, sep='\t')
 
+    # Convert Voltage column to float, removing 'V' suffix if present
+    df['Voltage'] = df['Voltage'].astype(str).str.replace('V', '').astype(float)
+
     # Validate temperature
     if temperature not in ['80K', '15K']:
         raise ValueError("Temperature must be '80K' or '15K'")
@@ -116,7 +119,6 @@ def plot_data(processed_data_file, temperature):
 
     # Define colors for I_1, I_2, I_3
     colors = {'I_1(normalised)': 'blue', 'I_2(normalised)': 'green', 'I_3(normalised)': 'red'}
-    # Slightly altered colors for Voltage = 0.0 at 80K
     colors_special = {'I_1(normalised)': 'lightblue', 'I_2(normalised)': 'lightgreen', 'I_3(normalised)': 'lightcoral'}
 
     # Determine planes for joint and separate plots based on temperature
@@ -127,10 +129,13 @@ def plot_data(processed_data_file, temperature):
         joint_planes = ['(h,k,0)', '(h,k,-0.5)']
         separate_plane = '(h,k,-0.25)'
 
-    # 1. Plot normalized intensities
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    # 1. Plot normalized intensities (joint plot with shared legend)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
     fig.suptitle(f'Normalized Intensities vs. Voltage ({temperature})', fontsize=16)
-
+    
+    # Collect legend handles and labels
+    handles, labels = [], []
+    
     for idx, plane in enumerate(joint_planes):
         ax = axes[idx]
         plane_data = df[df['Plane'] == plane]
@@ -138,25 +143,42 @@ def plot_data(processed_data_file, temperature):
         for intensity in ['I_1(normalised)', 'I_2(normalised)', 'I_3(normalised)']:
             if temperature == '80K':
                 # Split data for Voltage = 0.0 and others
-                zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
-                non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
+                zero_data = plane_data[plane_data['Voltage'] == 0.0]
+                non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
                 if not zero_data.empty:
-                    ax.scatter(zero_data['Voltage'], zero_data[intensity], 
-                              c=colors_special[intensity], label=f'{intensity} (V=0)', s=50, marker='o')
+                    scatter = ax.scatter(zero_data['Voltage'], zero_data[intensity], 
+                                        c=colors_special[intensity], label=f'{intensity[:3]} (V=0)', s=50, marker='o')
+                    if idx == 0:
+                        handles.append(scatter)
+                        labels.append(f'{intensity[:3]} (V=0)')
                 if not non_zero_data.empty:
-                    ax.scatter(non_zero_data['Voltage'], non_zero_data[intensity], 
-                              c=colors[intensity], label=intensity, s=50, marker='o')
+                    scatter = ax.scatter(non_zero_data['Voltage'], non_zero_data[intensity], 
+                                        c=colors[intensity], label=intensity[:3], s=50, marker='o')
+                    if idx == 0:
+                        handles.append(scatter)
+                        labels.append(intensity[:3])
             else:
-                # No special treatment for 15K
-                ax.scatter(plane_data['Voltage'], plane_data[intensity], 
-                          c=colors[intensity], label=intensity, s=50, marker='o')
+                scatter = ax.scatter(plane_data['Voltage'], plane_data[intensity], 
+                                    c=colors[intensity], label=intensity[:3], s=50, marker='o')
+                if idx == 0:
+                    handles.append(scatter)
+                    labels.append(intensity[:3])
         
         ax.set_title(f'Plane {plane}')
         ax.set_xlabel('Voltage (V)')
         ax.set_ylabel('Normalized Intensity')
-        ax.legend()
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # Debugging: Print handles and labels
+    print(f"Intensities Joint Plot ({temperature}) - Legend Labels: {labels}")
+    
+    # Add shared legend outside the plot
+    if handles:
+        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(0.99, 0.5), 
+                   borderaxespad=0., fontsize='small')
+        fig.subplots_adjust(right=0.90)  # Reserve less space for legend
+    else:
+        print(f"Warning: No legend handles for intensities joint plot ({temperature})")
+
     plt.savefig(os.path.join(os.path.dirname(processed_data_file), f'intensities_joint_{temperature}.png'))
     plt.close()
 
@@ -166,17 +188,17 @@ def plot_data(processed_data_file, temperature):
     
     for intensity in ['I_1(normalised)', 'I_2(normalised)', 'I_3(normalised)']:
         if temperature == '80K':
-            zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
-            non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
+            zero_data = plane_data[plane_data['Voltage'] == 0.0]
+            non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
             if not zero_data.empty:
                 ax.scatter(zero_data['Voltage'], zero_data[intensity], 
-                          c=colors_special[intensity], label=f'{intensity} (V=0)', s=50, marker='o')
+                          c=colors_special[intensity], label=f'{intensity[:3]} (V=0)', s=50, marker='o')
             if not non_zero_data.empty:
                 ax.scatter(non_zero_data['Voltage'], non_zero_data[intensity], 
-                          c=colors[intensity], label=intensity, s=50, marker='o')
+                          c=colors[intensity], label=intensity[:3], s=50, marker='o')
         else:
             ax.scatter(plane_data['Voltage'], plane_data[intensity], 
-                      c=colors[intensity], label=intensity, s=50, marker='o')
+                      c=colors[intensity], label=intensity[:3], s=50, marker='o')
     
     ax.set_title(f'Normalized Intensities vs. Voltage ({separate_plane}, {temperature})')
     ax.set_xlabel('Voltage (V)')
@@ -186,33 +208,53 @@ def plot_data(processed_data_file, temperature):
     plt.savefig(os.path.join(os.path.dirname(processed_data_file), f'intensities_separate_{temperature}.png'))
     plt.close()
 
-    # 2. Plot Anisotropy Parameter (A)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+    # 2. Plot Anisotropy Parameter (joint plot with shared legend)
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
     fig.suptitle(f'Anisotropy Parameter vs. Voltage ({temperature})', fontsize=16)
-
+    
+    handles, labels = [], []
+    
     for idx, plane in enumerate(joint_planes):
         ax = axes[idx]
         plane_data = df[df['Plane'] == plane]
         
         if temperature == '80K':
-            zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
-            non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
+            zero_data = plane_data[plane_data['Voltage'] == 0.0]
+            non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
             if not zero_data.empty:
-                ax.scatter(zero_data['Voltage'], zero_data['A'], 
-                          c='orange', label='A (V=0)', s=50, marker='o')
+                scatter = ax.scatter(zero_data['Voltage'], zero_data['A'], 
+                                    c='orange', label='A (V=0)', s=50, marker='o')
+                if idx == 0:
+                    handles.append(scatter)
+                    labels.append('A (V=0)')
             if not non_zero_data.empty:
-                ax.scatter(non_zero_data['Voltage'], non_zero_data['A'], 
-                          c='darkorange', label='A', s=50, marker='o')
+                scatter = ax.scatter(non_zero_data['Voltage'], non_zero_data['A'], 
+                                    c='darkorange', label='A', s=50, marker='o')
+                if idx == 0:
+                    handles.append(scatter)
+                    labels.append('A')
         else:
-            ax.scatter(plane_data['Voltage'], plane_data['A'], 
-                      c='darkorange', label='A', s=50, marker='o')
+            scatter = ax.scatter(plane_data['Voltage'], plane_data['A'], 
+                                c='darkorange', label='A', s=50, marker='o')
+            if idx == 0:
+                handles.append(scatter)
+                labels.append('A')
         
         ax.set_title(f'Plane {plane}')
-        ax.set_xlabel('Voltage')
+        ax.set_xlabel('Voltage (V)')
         ax.set_ylabel('Anisotropy Parameter (A)')
-        ax.legend()
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    # Debugging: Print handles and labels
+    print(f"Anisotropy Joint Plot ({temperature}) - Legend Labels: {labels}")
+    
+    # Add shared legend outside the plot
+    if handles:
+        fig.legend(handles, labels, loc='center right', bbox_to_anchor=(0.99, 0.5), 
+                   borderaxespad=0., fontsize='small')
+        fig.subplots_adjust(right=0.90)  # Reserve less space for legend
+    else:
+        print(f"Warning: No legend handles for anisotropy joint plot ({temperature})")
+
     plt.savefig(os.path.join(os.path.dirname(processed_data_file), f'anisotropy_joint_{temperature}.png'))
     plt.close()
 
@@ -221,8 +263,8 @@ def plot_data(processed_data_file, temperature):
     plane_data = df[df['Plane'] == separate_plane]
     
     if temperature == '80K':
-        zero_data = plane_data[plane_data['Voltage'] == "0.0V"]
-        non_zero_data = plane_data[plane_data['Voltage'] != "0.0V"]
+        zero_data = plane_data[plane_data['Voltage'] == 0.0]
+        non_zero_data = plane_data[plane_data['Voltage'] != 0.0]
         if not zero_data.empty:
             ax.scatter(zero_data['Voltage'], zero_data['A'], 
                       c='orange', label='A (V=0)', s=50, marker='o')
@@ -242,19 +284,16 @@ def plot_data(processed_data_file, temperature):
     plt.close()
 
     # 3. Plot I_total and I_av averaged across all planes
-    # Group by Voltage and average I_total and I_av
     avg_data = df.groupby('Voltage')[['I_total', 'I_av']].mean().reset_index()
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharex=True)
     fig.suptitle(f'I_total and I_av vs. Voltage (Averaged Across Planes, {temperature})', fontsize=16)
 
-    # I_total plot
     axes[0].scatter(avg_data['Voltage'], avg_data['I_total'], c='purple', s=50, marker='o')
     axes[0].set_title('I_total (Averaged)')
     axes[0].set_xlabel('Voltage (V)')
     axes[0].set_ylabel('I_total')
 
-    # I_av plot
     axes[1].scatter(avg_data['Voltage'], avg_data['I_av'], c='teal', s=50, marker='o')
     axes[1].set_title('I_av (Averaged)')
     axes[1].set_xlabel('Voltage (V)')
