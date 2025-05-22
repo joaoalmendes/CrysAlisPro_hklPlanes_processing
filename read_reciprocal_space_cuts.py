@@ -368,7 +368,6 @@ def check_existing_data(local_data_path: str, Planes: list[str]) -> bool:
     Args:
         local_data_path (str): Path to the local data directory.
         Planes (list[str]): List of planes to check.
-        merged (bool): Whether merged folder is used.
 
     Returns:
         bool: True if data gathering should proceed, False if skipped.
@@ -377,6 +376,11 @@ def check_existing_data(local_data_path: str, Planes: list[str]) -> bool:
         return True  # Proceed if local data folder doesn't exist
 
     existing_files = set(os.listdir(local_data_path))
+
+    # If no files exist in the directory, proceed with data gathering
+    if not existing_files:
+        print(f"No files found in {local_data_path}. Proceeding with data gathering.")
+        return True
 
     # Auto-detect merged flag from an existing file
     sample_file = random.choice(list(existing_files))
@@ -392,7 +396,7 @@ def check_existing_data(local_data_path: str, Planes: list[str]) -> bool:
         return user_input == "y"
 
     if missing_files:
-        print(f"Missing files detected in {local_data_path}. Proceeding with data gathering.")
+        print(f"Missing files detected in {local_data_path}: {missing_files}. Proceeding with data gathering.")
 
     return True  # Continue processing
 

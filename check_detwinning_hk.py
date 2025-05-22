@@ -3,22 +3,20 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
-from read_reciprocal_space_cuts import check_existing_data, extract_plane_from_filename, reorder_files_to_data, check_merged
+import re
+import shutil
+from read_reciprocal_space_cuts import check_existing_data, extract_plane_from_filename, reorder_files_to_data, check_merged, find_correct_data_path
 
 def generate_data(data, Planes_list, merged, voltage):
     # Initial Parameters
-    zone_1 = (840, 1000, 990, 1130)
-    zone_2 = (840, 1000, 990, 1130)   # (col_start, col_end, row_start, row_end)/(X_start, X_end, Y_start, Y_end); defines the boxe delimitation for the hk space of comparison
-    zone_3 = (840, 1000, 990, 1130)
-
     peak_BoxSize = (7, 7)
 
-    peaks_positions_1 = {0: (891,1005), 1: (860, 1058), 2: (891, 1112),
-                       3: (952,1112), 4: (984, 1059), 5: (953, 1005)} # as (collum, row)/(X, Y)
+    peaks_positions_1 = {0: (522,1005), 1: (491, 1058), 2: (523, 1112),
+                       3: (583,1112), 4: (615, 1059), 5: (584, 1005)} # as (collum, row)/(X, Y)
     peaks_positions_2 = {0: (891,1005), 1: (860, 1058), 2: (891, 1112),
                        3: (952,1112), 4: (984, 1059), 5: (953, 1005)} # as (collum, row)/(X, Y)
-    peaks_positions_3 = {0: (891,1005), 1: (860, 1058), 2: (891, 1112),
-                       3: (952,1112), 4: (984, 1059), 5: (953, 1005)} # as (collum, row)/(X, Y)
+    peaks_positions_3 = {0: (1079,685), 1: (1048, 738), 2: (1079, 792),
+                       3: (1140,792), 4: (1172, 738), 5: (1141, 685)} # as (collum, row)/(X, Y)
 
     # Processing
     list_peaks_positions = [peaks_positions_1, peaks_positions_2, peaks_positions_3]
@@ -48,28 +46,107 @@ def generate_data(data, Planes_list, merged, voltage):
             # Calculate average intensities of symmetric pairs
             I_2 = (peaks_intensities[0] + peaks_intensities[3]) / 2   # Domain 2
             I_1 = (peaks_intensities[1] + peaks_intensities[4]) / 2   # Domain 1
-            I_3 = (peaks_intensities[2] + peaks_intensities[5]) / 2  # Domain 3
+            I_3 = (peaks_intensities[2] + peaks_intensities[5]) / 2   # Domain 3
             print(f"Appending row: {[voltage, zone, plane, I_1, I_2, I_3]}")
             result.append([voltage, zone, plane, I_1, I_2, I_3])
     return result
 
-def get_data(original_path, Planes_list):
+def get_data(original_path, Planes_list, temperature, not_to_process_voltages):
+    VEGA_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
     os.chdir(original_path)
     data_dataframe = []
-    for voltage in os.listdir():
-        local_path = original_path + f"{voltage}/data/"
+
+    # Get list of folders in the current directory
+    current_voltages = [f for f in os.listdir() if os.path.isdir(f)]
+
+    # Get list of folders starting with 'V' in the VEGA_dir/temperature directory
+    v_folders = [f for f in os.listdir(os.path.join(VEGA_dir, f"{temperature}")) 
+                 if os.path.isdir(os.path.join(VEGA_dir, f"{temperature}", f)) and f.startswith('V')]
+
+    # Extract voltage values from v_folders for comparison (e.g., 'V8.0_-8.0' -> '8.0')
+    v_folders_voltages = []
+    for folder in v_folders:
+        match = re.match(r'V([\d.]+)_-[\d.]+', folder)
+        if match:
+            v_folders_voltages.append(match.group(1))  # Extract the voltage (e.g., '8.0')
+
+    # Compare current_voltages with v_folders_voltages
+    if set(current_voltages) != set(f"{v}V" for v in v_folders_voltages):
+        # Create missing folders in the current directory
+        for voltage in v_folders_voltages:
+            folder_name = f"{float(voltage)}V"  # Format as '8.0V'
+            folder_path = os.path.join(original_path, folder_name)
+            data_folder_path = os.path.join(folder_path, "data")
+            
+            # Create the voltage folder and 'data' subfolder if they don't exist
+            os.makedirs(folder_path, exist_ok=True)
+            os.makedirs(data_folder_path, exist_ok=True)
+
+    # Filter out voltages to skip
+    process_voltages = [v for v in current_voltages if v not in not_to_process_voltages]
+
+    os.chdir(original_path)
+    for voltage in process_voltages:
+        # Use os.path.join for proper path construction
+        local_path = os.path.join(original_path, voltage, "data")
+        
+        # Ensure the data folder exists
+        os.makedirs(local_path, exist_ok=True)
         os.chdir(local_path)
+        
         gather_needed = check_existing_data(local_path, Planes_list)
         if not gather_needed:
             img_files = [os.path.join(local_path, f) for f in os.listdir(local_path) 
-                            if f.endswith(".img") and extract_plane_from_filename(f) in Planes_list]
+                         if f.endswith(".img") and extract_plane_from_filename(f) in Planes_list]
             if img_files:
                 data = reorder_files_to_data(img_files, Planes_list)
-                print('Processing existing files')
+                print(f'Processing existing files for {voltage}')
                 is_merged = check_merged(img_files[0])
-                lines = generate_data(data, Planes_list, is_merged, float(voltage.replace('V', ''))).copy()
+                # Remove 'V' from voltage for float conversion
+                voltage_value = float(voltage.replace('V', ''))
+                lines = generate_data(data, Planes_list, is_merged, voltage_value).copy()
                 data_dataframe.extend(lines)
+        else:
+            # Determine the correct remote path dynamically
+            voltage_value = voltage.replace('V', '')  # Extract voltage (e.g., '8.0' from '8.0V')
+            remote_base_path = os.path.join(VEGA_dir, str(temperature), f"V{voltage_value}_-{voltage_value}")
+            remote_data_path = find_correct_data_path(remote_base_path)
+            if remote_data_path is None:
+                print(f"No valid data folder found in base directory: {remote_base_path}")
+                # Remove the local voltage folder and its contents
+                local_voltage_folder = os.path.join(original_path, voltage)
+                if os.path.exists(local_voltage_folder):
+                    shutil.rmtree(local_voltage_folder)
+                    print(f"Removed local folder: {local_voltage_folder}")
+                continue
+
+            # Process and copy required files only if missing or being replaced
+            found_files = 0
+            print(f"Processing {voltage}")
+
+            for file_name in os.listdir(remote_data_path):
+                plane = extract_plane_from_filename(file_name)
+                if plane and plane in Planes_list:
+                    found_files += 1
+                    src_file = os.path.join(remote_data_path, file_name)
+
+                    if not os.path.exists(src_file):
+                        print(f"Plane {plane} not found in {temperature}/{voltage} at {remote_data_path}")
+                    else:
+                        dest_file = os.path.join(local_path, file_name)
+                        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+                        shutil.copy(src_file, dest_file)
+
+                        # Handle `.Identifier` files
+                        identifier_file = os.path.join(local_path, f"{os.path.splitext(file_name)[0]}.Identifier")
+                        if os.path.exists(identifier_file):
+                            os.remove(identifier_file)
+
+            if found_files != len(Planes_list):
+                print(f"Expected {len(Planes_list)} files but found {found_files} for planes in {temperature}/{voltage} at {remote_data_path}")
+
         os.chdir(original_path)
+    
     return data_dataframe
 
 def process_data(data_file, out_file_name):
@@ -314,10 +391,12 @@ def plot_data(processed_data_file, temperature):
 running_script_path = os.getcwd()
 
 T = "80K"
+voltages_skip_list = ["48.0V"]  # For 80K
+#voltages_skip_list = []  # For 15K
 main_path = running_script_path + f"/Data/{T}/"
 Planes = ["(h,k,0)", "(h,k,-0.25)", "(h,k,-0.5)"]
 
-data_df = get_data(main_path, Planes)
+data_df = get_data(main_path, Planes, T, voltages_skip_list)
 
 os.chdir(running_script_path)
 # Create DataFrame
