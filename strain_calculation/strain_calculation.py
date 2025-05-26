@@ -142,6 +142,8 @@ def get_data_and_plot(xy, dx, dy, npts, margin, poni, VEGA_dir, Temperature, hom
     poni_file_info = pyFAI.load(poni)  # Load poni file for experimental parameters
     if Temperature == "80K":
         tail = '6peaks/merged/CsV3Sb5_strain_merged_01_'  # Frame where peak is detected
+    if Temperature == "15K":
+        tail = '7peaks/merged/CsV3Sb5_strain_02_'
 
     dataframe = []
     for i, pre in enumerate(head):
@@ -291,15 +293,15 @@ running_script_path = os.getcwd()
 
 poni_file = 'LaB6_Ka_tth0.poni'
 Z_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
-T = "80K"
+T = "15K"
 out_file_name = f'{Peak}_{T}_Dvalues.csv'
 
-#get_data_and_plot(peak_xy, peak_dx, peak_dy, N_pts, Frame_margin, poni_file, Z_dir, T, running_script_path, out_file_name)
+get_data_and_plot(peak_xy, peak_dx, peak_dy, N_pts, Frame_margin, poni_file, Z_dir, T, running_script_path, out_file_name)
 
-#processed_data_file_name = process_data(out_file_name, Peak, T)
-processed_data_file = f'{Peak}_{T}_strain.csv'
+processed_data_file_name = process_data(out_file_name, Peak, T)
+#processed_data_file_name = f'{Peak}_{T}_strain.csv'
 
-plot_data(processed_data_file, Peak, T)
+plot_data(processed_data_file_name, Peak, T)
 
 
 
