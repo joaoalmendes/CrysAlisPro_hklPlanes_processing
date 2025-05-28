@@ -14,47 +14,6 @@ plt.close('all')
 from lmfit.models import LorentzianModel, ConstantModel, PseudoVoigtModel, QuadraticModel
 from lmfit.models import LinearModel
 
-def myfit(x,y):
-    pl = PseudoVoigtModel(prefix="pl_") 
-    pr = PseudoVoigtModel(prefix="pr_") 
-    C = ConstantModel()
-    mod = pl + pr + C
-    const = y[(-5<x)*(x<5)].mean()
-    params = mod.make_params()
-    params.update(pl.guess(y[x<0]-const, x[x<0]))
-    params.update(pr.guess(y[x>0]-const, x[x>0]))
-    params["pl_sigma"].set(expr="pr_sigma")
-    #params.update(C.guess(y,x))
-    params["c"].set(value=const, min=0)
-    res = mod.fit(data=y, params=params, x=x)
-    return res
-
-def my_fit2(x,y):
-    Kbwls = [
-        0.713607,
-    ]
-    Kb_main = 0.70931715
-    pv = PseudoVoigtModel()
-    model = pv + ConstantModel()
-    for i, wl in enumerate(Kbwls):
-        model = model + PseudoVoigtModel(prefix=f"p{i}_")
-    params = model.make_params()
-    params.add("d", expr=f"{Kb_main}/(2*sin(center/2*pi/180))")
-    params.add("I12", value=0.5, vary=False)
-    for i, wl in enumerate(Kbwls):
-        params[f"p{i}_center"].set(expr=f"2*(asin({wl}/2/d))*180/pi")
-        params[f"p{i}_sigma"].set(expr="sigma")
-        params[f"p{i}_fraction"].set(expr="fraction")
-        params[f"p{i}_amplitude"].set(expr="I12*amplitude")
-    params.update(PseudoVoigtModel().guess(y, x))
-    #params.add("strech")
-    params['p0_sigma'].set(expr="sigma")
-    params["c"].set(value=y[:3].mean())
-    #params['p2_sigma'].set(expr="sigma*strech")
-    #display(params)
-    res = model.fit(y, params=params, x=x)
-    return res
-
 def my_fit3(x,y, start=None):
     Kbwls = [
         0.713607,
@@ -85,35 +44,6 @@ def my_fit3(x,y, start=None):
         params = start
     res = model.fit(y, params=params, x=x)
     return res
-
-def do_fit(xarr, ax, label, model=myfit):
-    if ax:
-        xarr.plot(ms=5, linestyle='none', label=label, ax=ax, marker='o')
-        c = ax.lines[-1].get_color()
-    if model:
-        res = model(xarr.th2.data, xarr.data)
-        comps = res.eval_components()
-        if ax:
-            ax.plot(xarr.th2.data, res.eval(), color=c, marker='none')
-    return res
-
-def hkl_to_q(hkl, a, b, c, al, be, ga):
-    hkl = np.asarray(hkl)
-    cell = ase.geometry.cellpar_to_cell(a, b, c, al, be, ga)
-    # reciprocal-cell (Cartesian) = 2π·transpose(inv(cell))
-    rec = 2*np.pi * np.linalg.inv(cell).T
-    # build G = rec ⋅ [h,k,l]
-    G = rec.dot(np.asarray(hkl))
-    return np.linalg.norm(G)
-
-def my_param_plot(fitres, param, ax=None):
-    x,res = zip(*fitres)
-    if ax is None:
-        ax = plt.subplot(111)
-    ax.errorbar(x, 
-                [_.params[param].value for _ in res],
-                [_.params[param].stderr for _ in res], fmt='bo-') 
-    ax.ylable(param)
 
 def get_voltage(name):
     # From the voltage string file name's, get's the float value of the voltage
@@ -275,6 +205,8 @@ def plot_data(data_file, peak, Temperature, degree = 1):
     # Display the plot
     plt.show()
     
+    f, axs = plt.subplots(1, 2, figsize=(10, 5))  # Create a figure with two subplots
+
     # Print the fitted coefficients
     return print(f'Fitted polynomial coefficients (from highest to lowest degree): {coefficients}')
 
