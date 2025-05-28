@@ -182,7 +182,7 @@ for voltage_folder in voltage_folders:
                 peak_dict[hkl]['intensity'] = intensity
                 peak_dict[hkl]['j'] = j
                 peak_dict[hkl]['i'] = i
-                peak_dict[hkl]['cbf_file'] = basename
+                peak_dict[hkl]['cbf_file'] = os.path.join(voltage, basename)
 
 # Create DataFrame from peak_dict
 peak_data = []

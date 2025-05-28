@@ -205,7 +205,7 @@ for voltage_folder in voltage_folders:
                                 'j': peak['j'],
                                 'i': peak['i'],
                                 'frame': frame,
-                                'cbf_file': basename,
+                                'cbf_file': os.path.join(voltage, basename),
                                 'hkl': hkl_rounded
                             }
                         matched = True
@@ -217,7 +217,7 @@ for voltage_folder in voltage_folders:
                         'j': peak['j'],
                         'i': peak['i'],
                         'frame': frame,
-                        'cbf_file': basename,
+                        'cbf_file': os.path.join(voltage, basename),
                         'hkl': hkl_rounded
                     }
             except Exception as e:
