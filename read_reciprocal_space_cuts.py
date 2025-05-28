@@ -512,18 +512,20 @@ def process_data(base_dir: str, local_dir: str, Planes: list[str], TEMPERATURES:
 
 # Inputs: Define temperatures and voltages to process
 TEMPERATURES = [
-                "80K_medium_strain", 
-                "15K_medium_strain",
-                "80K_high_strain", 
-                "75K",
+                "80K", 
+                "15K",
+                #"80K_high_strain", 
+                #"75K",
                 ]  # Add temperatures here
 
 VOLTAGES = {
             #"80K": [ "0.0V", "8.0V", "12.0V", "14.5V", "20.0V", "29.0V", "38.0V", "55.0V"],
             #"15K": ["5.0V", "20.0V", "35.0V", "57.0V", "95.0V", "125.0V"],
-            "80K_medium_strain": ["30.0V"], 
-            "15K_medium_strain": ["83.0V"],
-            "75K": ["58.0V"], 
+            "80K": ["12.0V", "20.0V", "29.0V"], 
+            "15K": ["5.0V", "57.0V", "125.0V"],
+            #"80K_medium_strain": ["30.0V"], 
+            #"15K_medium_strain": ["83.0V"],
+            #"75K": ["58.0V"], 
             }  # Voltages for each temperature
 
 # Define the planes to be processed with regards to your inputed parameters in the processing functions

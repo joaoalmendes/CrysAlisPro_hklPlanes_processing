@@ -403,14 +403,14 @@ def save_xy(xy, fn):
 poni_file = 'LaB6_Ka_tth0.poni'
 Z_dir = "/mnt/z/VEGA/CsV3Sb5_strain/2024/07/CsV3Sb5_July24_Kalpha/runs"
 script_dir = os.getcwd()
-T = "80K"
+T = "15K"
 
 if T == "80K":
     peak_dir = "6peaks"
     end = "merged"
 elif T == "15K":
     peak_dir = "7peaks"
-    end = "esp"
+    end = "merged"
 else:
     raise ValueError("Invalid temperature. Use '80K' or '15K'.")
 
@@ -433,12 +433,12 @@ if T == "15K":
 ext_param = 'Voltage'
 
 reader = csv.reader(open(peak_table))
-ijs = [] # list for the i, j coordinates of the peak maximum [pixels] 
+jis = [] # list for the j, i coordinates of the peak maximum [pixels] 
 hkls = [] # list for the peak's hkl triades
 fns = [] # list for the frame files where the peak is detected
 
 for row in reader:
-    ijs.append([int(_) for _ in row[:2]][::-1])
+    jis.append([int(_) for _ in row[:2]])   # Do not reverse because the input is already with j (x) followed by i (y)
     hkls.append([float(_) for _ in row[-3:]])
     fns.append(row[2])
 
@@ -452,7 +452,7 @@ def main():
  
     
     pi = 0 # peak index
-    for ij, hkl, fn in zip(ijs, hkls, fns):
+    for ji, hkl, fn in zip(jis, hkls, fns):
         hkl_string = (3 * "_{:.2f}").format(*hkl)
         res_dir = f"{script_dir}/results/{pi:02}{hkl_string}"
         print('\nResults of the analysis will be stored in\n', res_dir,'\n')
@@ -494,11 +494,11 @@ def main():
             print(f"analysing peak {pi:02} at {ext_param[0]} = {EP} ... ")
             frame = get_frame_index(fn)
             print(frame)
-            Isum, tth, Itth, th, Ith, frame_new, ij_new, res = process_peak_general(
-                isAtSynch, dataset, frame, ij, ai
+            Isum, tth, Itth, th, Ith, frame_new, ji_new, res = process_peak_general(
+                isAtSynch, dataset, frame, ji, ai
             )
-            print(f"update peak position from {ij} to {ij_new}!")
-            ij = ij_new
+            print(f"update peak position from {ji} to {ji_new}!")
+            ji = ji_new
             print(f"update frame from {frame} to {frame_new}!")
             frame = frame_new
             
