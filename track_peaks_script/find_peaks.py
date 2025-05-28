@@ -148,8 +148,12 @@ for voltage_folder in voltage_folders:
         omega = th_s + (frame - 1) * th_inc  # in degrees
         omega_rad = np.deg2rad(omega)
         
-        # Load CBF file
-        img = fabio.open(cbf_file)
+        # Load CBF file with error handling
+        try:
+            img = fabio.open(cbf_file)
+        except Exception as e:
+            print(f"Error reading {cbf_file}: {e}")
+            continue
         data = img.data
         height, width = data.shape
         background = np.median(data)
